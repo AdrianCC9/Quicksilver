@@ -22,13 +22,6 @@ API_KEY = "d2pp0i9r01qnf9nm2hbgd2pp0i9r01qnf9nm2hc0"
 BASE_URL = "https://finnhub.io/api/v1/company-news"
 TICKERS = ["AAPL", "TSLA"]
 
-if not API_KEY:
-    raise SystemExit(
-        "FINNHUB_API_KEY is not set. In PowerShell, run:\n"
-        '  $env:FINNHUB_API_KEY="your_key_here"\n'
-        "Then re-run this script."
-    )
-
 class FinnhubRateLimit(Exception):
     pass
 
@@ -43,6 +36,7 @@ def _check_rate_limit(resp) -> None:
     retry=retry_if_exception_type((requests.RequestException, FinnhubRateLimit)),
     reraise=True,
 )
+
 def fetch_company_news(ticker, start_date, end_date):
     params = {
         "symbol": ticker,
