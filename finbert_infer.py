@@ -52,3 +52,40 @@ def run_inference():
     session = Session(enginer)
     inserted = 0
     unanalyzed = get_unanalyzed_headlines(session)
+
+    if not unanalyzed:
+        logging.info("No new headlines to analyze")
+        session.close()
+        return
+    
+    logging.info(f"Found {len(unanalyzed)} unanalyzed headlines.")
+
+    for i in range(0, len(unanalyzed), BATCH_SIZE):
+        batch = unanalyzed[i:i + BATCH_SIZE]
+        ids = [row[0] for row in batch]
+        texts = [row[1] for row in batch]
+
+        probs, elapsed_ms = analyze_batch(texts)
+        for j, (p_pos, p_neu, p_neg) in enumerate(probs):
+            label_idx = torch.tensor([p_pos, p_neu, p_neg]).argmax().item()
+            label = ["positive", "neutral", "negative"][label_idx]
+            sentiment = Sentiment(
+                headline_id=ids[j],
+                label=label,
+                score_pos=float(p_pos),
+                score_neu=float(p_neu),
+                score_neg=float(p_neg),
+                model_version=MODEL_REPO,
+                inference_ms=elapsed_ms,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            session.add(sentiment)
+        session.commit()
+        inserted += len(ids)
+        logging.info(f"Processed {inserted}/{len(unanalyzed)} headlines so far...")
+
+    session.close()
+    logging.info(f"Finished inference: {inserted} sentiment rows inserted.")
+
+if __name__ == "__main__":
+    run_inference()
