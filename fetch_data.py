@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import requests
 from datetime import datetime, timedelta, UTC
@@ -9,15 +10,15 @@ from tenacity import (
     stop_after_attempt,
     retry_if_exception_type
 )
-from typing import Dict, List  # needed for the type annotation below
+from typing import Dict, List  
 
 # Setup log messages
 logging.basicConfig(
-    level=logging.INFO,  # was 'lefel'
+    level=logging.INFO,  
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# API Configuration
+# API Configurationg
 API_KEY = "d2pp0i9r01qnf9nm2hbgd2pp0i9r01qnf9nm2hc0"
 BASE_URL = "https://finnhub.io/api/v1/company-news"
 TICKERS = ["AAPL", "TSLA"]
@@ -49,15 +50,17 @@ def fetch_company_news(ticker, start_date, end_date):
     return resp.json()
 
 # Save the raw results
-def save_raw_jsonl(ticker, articles, out_dir: str = ".data/raw"):  # add default so call works
+def save_raw_jsonl(ticker, articles, out_dir: str = ".data/raw"):
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"{ticker}.jsonl")
-    with open(path, "a", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         for item in articles:
             if not item or "id" not in item:
                 continue
-            f.write(str(item).replace("'", '"') + "\n")
-    logging.info(f"Appended {len(articles)} articles to {path}")
+            json.dump(item, f, ensure_ascii=False)
+            f.write("\n")
+    logging.info(f"Wrote {len(articles)} articles to {path}")
+
 
 if __name__ == "__main__":
     today_utc = datetime.now(UTC).date()
