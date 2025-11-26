@@ -17,7 +17,7 @@ engine = create_engine(f"sqlite:///{DB_PATH}", echo=False, future=True)
 SessionLocal = sessionmaker(bind=engine)
 
 def normalize_record(item):
-    # Corrected required field names
+    # Check if record contains all required fields, if not, skip record
     required = ["headline", "related", "source", "url", "datetime"]
     if not all(k in item and item[k] for k in required):
         return None
@@ -45,29 +45,43 @@ def normalize_record(item):
         return None
 
 def process_raw_jsonl():
+    # Create database session
     session = SessionLocal()
-    inserted, skipped = 0, 0
+    inserted = 0
+    skipped = 0
+    # For each file in RAW data
     for fname in os.listdir(RAW_DIR):
+        # if the file does not end with .json, skip file and move on to next
         if not fname.endswith(".jsonl"):
             continue
+
+        # Create path to the individual file
         path = os.path.join(RAW_DIR, fname)
+
+        # Print processing label
         logging.info(f"Processing {path}")
+
+        # For each record in the file, convert to python dictionary
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 try:
                     item = json.loads(line.strip())
                 except json.JSONDecodeError:
                     continue
+                # normalize record
                 record = normalize_record(item)
                 if not record:
                     skipped += 1
                     continue
+                # Insert record into headline table
+                # **record is the unpackaged dictionary perfect so SQL inserting
                 headline = Headline(**record)
                 try:
                     session.add(headline)
                     session.commit()
                     inserted += 1
                 except Exception as e:
+                    # Undo any uncommited database changes
                     session.rollback()
                     if "UNIQUE constraint" in str(e):
                         skipped += 1

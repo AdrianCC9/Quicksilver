@@ -36,7 +36,7 @@ class Headline(Base):
 class Sentiment(Base):
     __tablename__ = "sentiment"
     id = Column(Integer, primary_key=True)
-    headline_id = Column(Integer, ForeignKey("headlines.id", ondelete="CASCADE"), nullable=False)
+    headline_id = Column(Integer, ForeignKey("headlines.id", ondelete="CASCADE"), nullable=False,unique=True)
     label = Column(String, nullable=False)
     score_pos = Column(Float, nullable=False)
     score_neu = Column(Float, nullable=False)

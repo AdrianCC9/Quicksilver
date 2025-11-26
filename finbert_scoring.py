@@ -16,7 +16,8 @@ MODEL_REPO = "ProsusAI/finbert"
 BATCH_SIZE = 8
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-engine = create_engine(f"sqlite:///{DB_PATH}", eccho=False, future=True)
+# Create datbase connection
+engine = create_engine(f"sqlite:///{DB_PATH}", echo=False, future=True)
 
 # Load Model and Tokenizer
 logging.info(f"Loading FinBERT model ({MODEL_REPO}) on {DEVICE}...")
@@ -24,9 +25,8 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_REPO).to(DEVICE)
 model.eval()
 
-# Get Headlines not yet analyzed
+# Get Headlines not yet analyzed for sentiment (smtmt)
 def get_unanalyzed_headlines(session):
-    """Return headlines that don't yet have sentiment results."""
     stmt = """
         SELECT h.id, h.title
         FROM headlines h
@@ -36,9 +36,8 @@ def get_unanalyzed_headlines(session):
         """
     return session.execute(stmt).fetchall()
 
-# Run FinBERT inference
+# Run FinBERT on a batch of headlines
 def analyze_batch(batch):
-    """Run rinbert on a batch of headline texts."""
     inputs = tokenizer(batch, padding=True, truncation=True, max_length=128, return_tensors="pt").to(DEVICE)
     with torch.no_grad():
         start = time.time()
@@ -49,26 +48,38 @@ def analyze_batch(batch):
 
 # Main Routine
 def run_inference():
-    session = Session(enginer)
+    # Start session
+    session = Session(engine)
     inserted = 0
     unanalyzed = get_unanalyzed_headlines(session)
 
+    # If list is empty, close session
     if not unanalyzed:
         logging.info("No new headlines to analyze")
         session.close()
         return
     
+    # Logs how many headlines will be processed
     logging.info(f"Found {len(unanalyzed)} unanalyzed headlines.")
 
+    # For all unanalyzed headlines, iterate over steps of batch size
     for i in range(0, len(unanalyzed), BATCH_SIZE):
         batch = unanalyzed[i:i + BATCH_SIZE]
         ids = [row[0] for row in batch]
         texts = [row[1] for row in batch]
 
+        # Run FinBERT on that batch of texts to get array of probabilites and elapsed time
         probs, elapsed_ms = analyze_batch(texts)
-        for j, (p_pos, p_neu, p_neg) in enumerate(probs):
-            label_idx = torch.tensor([p_pos, p_neu, p_neg]).argmax().item()
-            label = ["positive", "neutral", "negative"][label_idx]
+
+        # Loops over rows in probs
+        for j, (p_neg, p_neu, p_pos) in enumerate(probs):   # FIXED ORDER
+            # Argmax gives index in FinBERT's order: [negative, neutral, positive]
+            label_idx = torch.tensor([p_neg, p_neu, p_pos]).argmax().item()
+
+            # Correct FinBERT label mapping
+            label = ["negative", "neutral", "positive"][label_idx]
+
+            # Add info to Sentiment table
             sentiment = Sentiment(
                 headline_id=ids[j],
                 label=label,
@@ -80,6 +91,7 @@ def run_inference():
                 created_at=datetime.now(timezone.utc).isoformat(),
             )
             session.add(sentiment)
+
         session.commit()
         inserted += len(ids)
         logging.info(f"Processed {inserted}/{len(unanalyzed)} headlines so far...")
