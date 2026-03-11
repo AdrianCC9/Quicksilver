@@ -1,157 +1,127 @@
 # Quicksilver
 
-### Project Description
+## Description
 
-Quicksilver is a Python project that continuously tracks stock-market sentiment by analyzing financial news headlines.
-The system fetches news from the Finnhub API, cleans and normalizes the data, applies FinBERT (a finance-tuned language
-model) for sentiment classification, and stores results in a SQLite database. Rolling metrics (averages, z-scores, volume)
-are computed to detect significant sentiment changes, which can trigger alerts (Slack/email). A Streamlit dashboard
-is included for exploring trends interactively.
+Quicksilver is a real-time stock sentiment intelligence pipeline built to simulate the modern data engineering stack used in financial institutions. The system ingests fresh company news headlines from the Finnhub API, streams them through Apache Kafka, scores each headline with FinBERT using Hugging Face Transformers and PyTorch, stores raw and processed data in Snowflake, transforms that data into analytics-ready models with dbt, orchestrates the full workflow with Apache Airflow, and surfaces insights through a Streamlit dashboard. When unusual sentiment shifts are detected, Quicksilver can send automated Slack and email alerts.
 
-Quicksilver also includes an extension for **mock trading simulation**.
-Using paper-trading APIs (such as Alpaca Markets), Quicksilver can automatically place *simulated trades* whenever an alert fires, track hypothetical performance, and show how well the strategy would have performed in real conditions—without risking real money.
+The goal of the project is not just to classify headline sentiment, but to demonstrate an end-to-end production-style data platform that combines streaming, machine learning inference, cloud warehousing, analytics engineering, orchestration, containerization, and financial data analysis in a single system.
 
+## Tools and Libraries
 
-### Tools & Libraries
+### Core Language
+- **Python**  
+  Main programming language used for ingestion, streaming producers/consumers, NLP inference, data loading, alerting, and dashboard logic.
 
-* APIs & Data: Finnhub API, requests, tenacity
-* Processing: pandas, numpy, datetime, hashlib
-* Machine Learning: PyTorch (torch), Hugging Face Transformers (FinBERT)
-* Database: SQLite, SQLAlchemy, Alembic
-* Alerts: slack_sdk, smtplib
-* Dashboard: Streamlit, matplotlib, seaborn
-* Automation: schedule, logging
-* **Mock Trading (Optional)**: Alpaca Markets Paper Trading API, alpaca-trade-api Python SDK
+### Data Source
+- **Finnhub API**  
+  Provides fresh financial news headlines for tracked equity tickers.
+- **requests**  
+  Python HTTP library used to call the Finnhub API.
 
+### Streaming Infrastructure
+- **Apache Kafka**  
+  Real-time event streaming platform used to move headlines through the pipeline as messages rather than relying on a simple scheduled batch script.
+- **confluent-kafka**  
+  Python client library used to publish headlines to Kafka topics and consume them downstream for scoring and storage.
 
-### Data & Retention Strategy
+### NLP / Machine Learning
+- **Hugging Face Transformers**  
+  Used to load and run the FinBERT sentiment model.
+- **PyTorch**  
+  Backend deep learning framework that powers FinBERT inference.
+- **FinBERT**  
+  Finance-specific transformer model used to classify headlines as positive, neutral, or negative.
 
-* **Tickers**
+### Data Handling
+- **pandas**  
+  Used for light preprocessing, timestamp normalization, validation, debugging, and local inspection of data before or after warehouse loading.
 
-  * Quicksilver is designed to monitor **up to ~200 tickers per day**.
-  * A practical default is the **top ~200 S&P 500 companies by market cap**.
-  * The ticker list is fully configurable.
+### Cloud Storage / Warehousing
+- **Snowflake**  
+  Cloud data warehouse used to store raw headline data, sentiment outputs, and analytics-ready tables.
+- **snowflake-connector-python**  
+  Python connector for loading data into and querying Snowflake.
 
-* **Raw headline and sentiment retention**
+### Transformation Layer
+- **dbt (Data Build Tool)**  
+  Used to transform raw Snowflake tables into clean analytical models such as rolling sentiment averages, z-scores, headline volume summaries, and anomaly flags.
 
-  * Raw headline data and per-headline FinBERT sentiment are stored in `HEADLINES` and `SENTIMENT`.
-  * To keep the DB lightweight, Quicksilver retains **only the last 3 days** of raw data.
-  * A scheduled cleanup job removes older entries.
+### Orchestration
+- **Apache Airflow**  
+  Workflow orchestrator used to schedule and manage the dependencies between ingestion, streaming, scoring, loading, transformation, and alerting tasks.
 
-* **Aggregated feature retention**
+### Dashboard / Visualization
+- **Streamlit**  
+  Used to build an interactive dashboard for exploring sentiment trends, ticker-level analytics, and alert events.
+- **Matplotlib**
+  Used for foundational plotting inside the dashboard.
+- **Seaborn**
+  Used for cleaner statistical visualizations and trend-focused charts.
 
-  * Rolling metrics (sent_mean, sent_z, vol_z) are stored in `FEATURES`.
-  * Alerts and signal events are stored in `ALERTS`.
-  * These compact records are kept for **30 days**.
+### Alerts / Notifications
+- **slack_sdk**  
+  Sends alert notifications to Slack when rules are triggered.
+- **smtplib** or an email provider SDK  
+  Sends email alerts for important sentiment events.
 
-* **Storage footprint**
+### Reliability / Operations
+- **Docker**  
+  Containerizes the project so the full environment runs consistently across machines.
+- **tenacity**  
+  Adds retry logic for API calls and other transient failures.
+- **logging**  
+  Used for structured pipeline logs and debugging.
 
-  * With 200 tickers, 3-day raw retention, and 30-day feature retention, SQLite stays under a few hundred MB.
+## General Pipeline Process
 
+Quicksilver follows a layered pipeline:
 
-### End-to-End Workflow
+1. **News Ingestion**
+   - Python calls the Finnhub API for selected stock tickers.
+   - Each returned headline is treated as a new event.
 
-At a high level, Quicksilver runs as a scheduled pipeline that moves data through several states:
+2. **Streaming**
+   - Headlines are published into a Kafka topic.
+   - Kafka acts as the message backbone of the system, allowing downstream components to consume events reliably.
 
-1. **Schedule tick**
+3. **Sentiment Scoring**
+   - A Kafka consumer reads each headline.
+   - FinBERT classifies the headline sentiment and outputs sentiment probabilities or labels.
 
-   * A scheduler triggers the main pipeline every N minutes.
+4. **Raw Storage**
+   - The scored headline data is written into Snowflake raw tables.
+   - This layer preserves the original input and model output for traceability.
 
-2. **Fetch and normalize headlines**
+5. **Transformation**
+   - dbt models run inside Snowflake to transform raw data into analytics tables.
+   - These models compute features such as rolling averages, z-scores, headline counts, and anomaly indicators by ticker and time window.
 
-   * Retrieve news from Finnhub.
-   * Normalize timestamps, dedupe using content hashes, and store in `HEADLINES`.
+6. **Orchestration**
+   - Airflow coordinates the full pipeline and ensures each task runs in the correct order.
+   - It also handles scheduling, retries, and task monitoring.
 
-3. **Sentiment scoring with FinBERT**
+7. **Dashboard and Alerts**
+   - Streamlit reads the transformed analytics tables from Snowflake and visualizes sentiment trends.
+   - If alert conditions are met, Slack or email notifications are triggered automatically.
 
-   * Unscored headlines are passed through FinBERT.
-   * Results are stored in `SENTIMENT`.
+## High-Level Architecture
 
-4. **Feature computation**
+Finnhub API  
+→ Kafka Producer  
+→ Kafka Topic  
+→ FinBERT Scoring Consumer  
+→ Snowflake Raw Tables  
+→ dbt Models  
+→ Analytics Tables / Alert Models  
+→ Streamlit Dashboard + Slack/Email Alerts
 
-   * Sentiment scores are aggregated into fixed time windows (e.g., 1h).
-   * Compute:
+## Project Goal
 
-     * Average sentiment
-     * Sentiment z-score
-     * Volume z-score
-     * Headlines per window
-   * Store each snapshot into `FEATURES`.
-
-5. **Alert evaluation**
-
-   * Rule-based triggers (e.g., “sent_z < −2 && vol_z > +2”).
-   * Matches are stored in `ALERTS` and optionally sent to Slack/email.
-
-6. **Dashboard**
-
-   * Streamlit reads from `FEATURES` and `ALERTS`.
-   * Interactive charts show sentiment trends, volume spikes, and triggered alerts.
-
-7. **Retention and cleanup**
-
-   * Automatically remove old raw data (3 days).
-   * Remove old features/alerts (30 days).
-
-
-### Mock Trading & Trade Simulation (Optional Quicksilver Extension)
-
-Quicksilver can also act as a **signal-to-trade simulator**, showing how profitable the strategy *would have been* if trades were executed in real markets.
-
-#### How it works
-
-1. When an alert fires, Quicksilver sends a simulated trade to a **paper trading broker**, such as:
-
-   * **Alpaca Markets Paper Trading API** (recommended)
-
-     * Free, real-time, no real money required
-     * Clean REST API + Python SDK
-     * Handles hypothetical fills, PnL, equity, and positions automatically
-
-2. Quicksilver logs trades and performance into a `TRADES` table (optionally stored locally in SQLite).
-
-3. Streamlit visualizes:
-
-   * Entry/exit points
-   * Open positions
-   * PnL and equity curve
-   * How the algorithm would have performed over time
-
-#### Why Alpaca is recommended
-
-* 100% free paper trading environment
-* Realistic market execution logic
-* Full Python API (`alpaca-trade-api`)
-* Simple order placement:
-
-  ```python
-  api.submit_order(
-      symbol="AAPL",
-      qty=10,
-      side="buy",
-      type="market",
-      time_in_force="day"
-  )
-  ```
-
-#### How Quicksilver connects to Alpaca
-
-1. Install the SDK:
-
-   ```bash
-   pip install alpaca-trade-api
-   ```
-2. Add API keys to a `.env` file.
-3. `trade_simulator.py` listens for new alerts in the `ALERTS` table.
-4. Each alert triggers a **paper trade** (long/short) through Alpaca.
-5. Quicksilver periodically reads account/broker data to evaluate hypothetical performance.
-6. Streamlit displays simulated earnings, equity, and trade logs.
-
-#### Purpose of the simulator
-
-* Evaluate whether Quicksilver’s sentiment signals are **profitable**.
-* Test strategies safely **without risking real capital**.
-* Analyze performance over days, weeks, or months using automated alerts + real price data.
-
-This turns Quicksilver into a full end-to-end experimental trading research platform:
-**sentiment → metrics → alerts → simulated trades → profit evaluation**.
+Quicksilver is designed as a portfolio-grade system that demonstrates practical skills in:
+- real-time data streaming
+- NLP inference
+- cloud data warehousing
+- analytics engineering
+- orchestration
+- containerization
+- financial data analysis
