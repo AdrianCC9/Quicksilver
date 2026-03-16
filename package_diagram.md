@@ -55,6 +55,13 @@ logging_config.py"]
         streamlit_app["streamlit_app.py"]
     end
 
+    subgraph reporting["reporting/"]
+        powerbi_report["Power BI Report
+(powerbi_report.pbix)"]
+        powerbi_service["Power BI Service
+(scheduled refresh)"]
+    end
+
     subgraph orchestration["orchestration/"]
         airflow_dag["airflow_dag.py"]
     end
@@ -70,6 +77,7 @@ logging_config.py"]
     config --> analytics
     config --> alerts
     config --> dashboard
+    config --> reporting
     config --> orchestration
 
     models --> ingestion
@@ -93,6 +101,8 @@ logging_config.py"]
 
     analytics --> alerts
     analytics --> dashboard
+    transformations --> reporting
+    powerbi_report --> powerbi_service
 
     alerts --> notification_service
     orchestration --> ingestion

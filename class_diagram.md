@@ -78,6 +78,24 @@ class DashboardService {
   +renderAnomalyTable(events: List~AnomalyEvent~) void
 }
 
+class PowerBIReport {
+  -snowflakeConnection: str
+  -reportPages: List~str~
+  +connectToSnowflake() void
+  +refreshData() void
+  +renderSentimentOverview() void
+  +renderTickerSignalHistory(ticker: str) void
+  +renderAlertSummary() void
+}
+
+class PowerBIService {
+  -workspaceId: str
+  -reportId: str
+  +publishReport(report: PowerBIReport) void
+  +scheduleRefresh(cronExpression: str) void
+  +shareReport() str
+}
+
 class AirflowOrchestrator {
   +runIngestionTask() void
   +runStreamingTask() void
@@ -155,6 +173,10 @@ AlertEngine --> AnomalyEvent : creates
 NotificationService --> AnomalyEvent : sends
 DashboardService --> AnalyticsResult : visualizes
 DashboardService --> AnomalyEvent : displays
+PowerBIReport --> SnowflakeLoader : reads analytics tables from
+PowerBIReport --> AnalyticsResult : visualizes
+PowerBIReport --> AnomalyEvent : displays
+PowerBIService --> PowerBIReport : publishes
 AirflowOrchestrator --> FinnhubClient : orchestrates
 AirflowOrchestrator --> NewsProducer : orchestrates
 AirflowOrchestrator --> SentimentConsumer : orchestrates
