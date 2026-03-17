@@ -12,7 +12,7 @@ class Settings:
 
     # Model
     finbert_model_name: str = os.getenv(
-        "FINNBERT_MODEL_NAME",
+        "FINBERT_MODEL_NAME",
         "ProsusAI/finbert"
     )
 
