@@ -53,7 +53,7 @@ class FinnhubClient:
                     ticker=ticker,
                     headline=headline_text,
                     source=source or "",
-                    published_at_utc=str(published_at),
+                    published_at_utc=published_at,
                     url=url or "",
                 )
             )
