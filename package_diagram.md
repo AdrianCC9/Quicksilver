@@ -4,20 +4,16 @@ flowchart LR
     subgraph config["config/"]
         config_files["settings.py
 .env
-logging_config.py"]
     end
 
     subgraph models["models/"]
         raw_headline["raw_headline.py"]
         scored_headline["scored_headline.py"]
         sentiment_result["sentiment_result.py"]
-        anomaly_event["anomaly_event.py"]
-        analytics_result["analytics_result.py"]
     end
 
     subgraph ingestion["ingestion/"]
         finnhub_client["finnhub_client.py"]
-        fetch_news_job["fetch_news_job.py"]
     end
 
     subgraph streaming["streaming/"]
@@ -36,9 +32,11 @@ logging_config.py"]
     end
 
     subgraph transformations["transformations/"]
-        dbt_runner["dbt_runner.py"]
-        dbt_models["dbt models"]
-    end
+        headline_normalizer["headline_normalizer.py"]     
+        normalize_headlines["normalize_headlines.py"]     
+        dbt_runner["dbt_runner.py"]                       
+        dbt_models["dbt models"]                          
+end
 
     subgraph analytics["analytics/"]
         analytics_service["analytics_service.py"]
