@@ -23,7 +23,7 @@ class HeadlineNormalizer:
                 return value.replace(tzinfo=timezone.utc)
             return value.astimezone(timezone.utc)
         
-        if isinstance(value (int, float)):
+        if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value, tz=timezone.utc)
         
         if isinstance(value, str):
@@ -43,9 +43,10 @@ class HeadlineNormalizer:
         return RawHeadline(
             ticker=self._clean_text(headline.ticker).upper(),
             headline=self._clean_text(headline.headline),
-            source=self._clean_text(headline.url),
+            source=self._clean_text(headline.source) or "unknown",
             published_at_utc=self._normalize_timestamp(headline.published_at_utc),
             summary=self._clean_optional_text(headline.summary),
+            url=self._clean_text(headline.url),
         )
     
     @staticmethod
