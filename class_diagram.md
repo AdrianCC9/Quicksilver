@@ -32,7 +32,7 @@ class FinBERTScorer {
   -modelName: str
   -pipeline: object
   +loadModel() void
-  +scoreHeadline(headlineText: str) SentimentResult
+  +scoreHeadline(headline:RawHeadline) SentimentResult
   +scoreBatch(headlines: List~RawHeadline~) List~ScoredHeadline~
 }
 
@@ -117,14 +117,18 @@ class RawHeadline {
   +source: str
   +publishedAtUtc: str
   +url: str
+  +summary: str | None 
 }
 
 class SentimentResult {
   +label: str
-  +positiveProb: float
-  +neutralProb: float
-  +negativeProb: float
+  +positive_score: float      
+  +neutral_score: float       
+  +negative_score: float      
+  +compound_score: float      
+  +confidence: float          
 }
+
 
 class ScoredHeadline {
   +ticker: str
@@ -133,9 +137,15 @@ class ScoredHeadline {
   +publishedAtUtc: str
   +url: str
   +sentimentLabel: str
-  +positiveProb: float
-  +neutralProb: float
-  +negativeProb: float
+  +positive_score: float
+  +neutral_score: float
+  +negative_score: float
+  +compound_score: float
+  +confidence: float
+  +headline_age_hours: float
+  +source_tier: int
+  +summary: str | None
+  +content_hash: str | None
 }
 
 class AnalyticsResult {
@@ -188,5 +198,5 @@ DockerEnvironment --> AirflowOrchestrator : runs
 DockerEnvironment --> NewsProducer : runs
 DockerEnvironment --> SentimentConsumer : runs
 DockerEnvironment --> DashboardService : runs
-ScoredHeadline --|> RawHeadline
+ScoredHeadline --> RawHeadline : created from
 ```
