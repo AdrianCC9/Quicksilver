@@ -10,3 +10,5 @@ class SentimentResult:
     positive_score: float
     neutral_score: float
     negative_score: float
+    compound_score: float
+    confidence: float

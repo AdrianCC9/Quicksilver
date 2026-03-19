@@ -1,0 +1,1 @@
+from sentiment.finbert_scorer import FinBERTScorer

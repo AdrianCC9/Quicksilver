@@ -19,5 +19,9 @@ class ScoredHeadline:
     positive_score: float
     neutral_score: float
     negative_score: float
+    compound_score: float
+    confidence: float
+    headline_age_hours: float
+    source_tier: int
     summary: str | None = None
     content_hash: str | None = None
