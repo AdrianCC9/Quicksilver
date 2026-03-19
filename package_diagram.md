@@ -2,8 +2,7 @@
 flowchart LR
 
     subgraph config["config/"]
-        config_files["settings.py
-.env
+        config_files["settings.py / .env"]
     end
 
     subgraph models["models/"]
