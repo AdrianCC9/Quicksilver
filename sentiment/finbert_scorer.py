@@ -13,7 +13,7 @@ TIER1_SOURCES = {
 }
 
 TIER2_SOURCES = {
-    "marketwatch", "seeking alpha", "bezinga",
+    "marketwatch", "seeking alpha", "benzinga",
     "yahoo finance", "motley fool", "investopedia"
 }
 
@@ -104,7 +104,8 @@ class FinBERTScorer:
                         summary=headline.summary,
                         sentiment_label=result.label,
                         positive_score=result.positive_score,
-                        neutral_score=result.negative_score,
+                        neutral_score=result.neutral_score,
+                        negative_score=result.negative_score,
                         compound_score=result.compound_score,
                         confidence=result.confidence,
                         headline_age_hours=self._calculate_age_hours(headline.published_at_utc),
