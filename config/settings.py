@@ -1,6 +1,9 @@
 import os
 from dataclasses import dataclass, field
+from dotenv import load_dotenv
 from typing import List
+
+load_dotenv()
 
 @dataclass
 class Settings:
@@ -9,6 +12,15 @@ class Settings:
 
     # Database
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///quicksilver.db")
+
+    # Kafka
+    kafka_broker: str = os.getenv("KAFKA_BROKER", "localhost:9092")
+    raw_headlines_topic: str = os.getenv("RAW_HEADLINES_TOPIC", "raw_headlines")
+    scored_headlines_topic: str = os.getenv("SCORED_HEADLINES_TOPIC", "scored_headlines")
+    sentiment_consumer_group_id: str = os.getenv(
+        "SENTIMENT_CONSUMER_GROUP_ID",
+        "sentiment-scorers"
+    )
 
     # Model
     finbert_model_name: str = os.getenv(
