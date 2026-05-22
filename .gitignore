@@ -144,6 +144,13 @@ ENV/
 env.bak/
 venv.bak/
 
+# dbt local config and generated artifacts
+dbt/profiles.yml
+dbt/.user.yml
+dbt/logs/
+dbt/target/
+dbt/dbt_packages/
+
 # Spyder project settings
 .spyderproject
 .spyproject

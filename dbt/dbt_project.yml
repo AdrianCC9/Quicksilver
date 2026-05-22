@@ -1,0 +1,41 @@
+name: quicksilver
+version: "1.0.0"
+config-version: 2
+
+# Tells dbt to look for a snowflake connection profile named quicksilver
+profile: quicksilver
+
+model-paths:
+  - models
+
+analysis-paths:
+  - analyses
+
+test-paths:
+  - tests
+
+seed-paths:
+  - seeds
+
+macro-paths:
+  - macros
+
+snapshot-paths:
+  - snapshots
+
+# Where to put compiled SQL 
+target-path: target
+
+# Folders dbt is allowed to delete when you run 'dbt clean'
+clean-targets:
+  - target
+  - dbt_packages
+
+# By default, create models as snowflake views
+models:
+  quicksilver:
+    +materialized: view
+
+    # Everything in dbt/models/marts should be created as views
+    marts:
+      +materialized: view

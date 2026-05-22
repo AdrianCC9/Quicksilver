@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: quicksilver
+    database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+    schema: "{{ env_var('SNOWFLAKE_SCHEMA') }}"
+    tables:
+      - name: raw_headlines
+      - name: scored_headlines

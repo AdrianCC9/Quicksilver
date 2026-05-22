@@ -26,20 +26,19 @@ flowchart LR
     end
 
     subgraph storage["storage/"]
-        snowflake_loader["snowflake_loader.py"]
-        warehouse_tables["raw_news / scored_news tables"]
+        snowflake_storage["snowflake_storage.py"]
+        setup_snowflake["setup_snowflake.py"]
+        warehouse_tables["raw_headlines / scored_headlines tables"]
     end
 
     subgraph transformations["transformations/"]
         headline_normalizer["headline_normalizer.py"]     
         normalize_headlines["normalize_headlines.py"]     
-        dbt_runner["dbt_runner.py"]                       
-        dbt_models["dbt models"]                          
-end
+    end
 
-    subgraph analytics["analytics/"]
-        analytics_service["analytics_service.py"]
-        anomaly_detection["anomaly_detection.py"]
+    subgraph dbt["dbt/"]
+        dbt_sources["models/sources.yml"]
+        dbt_marts["models/marts/*.sql"]
     end
 
     subgraph alerts["alerts/"]
@@ -60,7 +59,7 @@ end
     end
 
     subgraph orchestration["orchestration/"]
-        airflow_dag["airflow_dag.py"]
+        airflow_dag["quicksilver_dag.py"]
     end
 
     subgraph tests["tests/"]
@@ -71,7 +70,7 @@ end
     config --> streaming
     config --> sentiment
     config --> storage
-    config --> analytics
+    config --> dbt
     config --> alerts
     config --> dashboard
     config --> reporting
@@ -81,7 +80,6 @@ end
     models --> streaming
     models --> sentiment
     models --> storage
-    models --> analytics
     models --> alerts
     models --> dashboard
 
@@ -93,12 +91,12 @@ end
     ingestion --> storage
 
     storage --> transformations
-    dbt_runner --> dbt_models
-    transformations --> analytics
+    storage --> dbt
+    transformations --> dbt
 
-    analytics --> alerts
-    analytics --> dashboard
-    transformations --> reporting
+    dbt --> alerts
+    dbt --> dashboard
+    dbt --> reporting
     powerbi_report --> powerbi_service
 
     alerts --> notification_service
@@ -106,7 +104,7 @@ end
     orchestration --> streaming
     orchestration --> storage
     orchestration --> transformations
-    orchestration --> analytics
+    orchestration --> dbt
     orchestration --> alerts
     orchestration --> dashboard
 
@@ -114,6 +112,6 @@ end
     tests --> streaming
     tests --> sentiment
     tests --> storage
-    tests --> analytics
+    tests --> dbt
     tests --> alerts
 ```
