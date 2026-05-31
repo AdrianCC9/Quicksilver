@@ -32,6 +32,10 @@ clean-targets:
   - dbt_packages
 
 # By default, create models as snowflake views
+vars:
+  sentiment_score_threshold: 0.50
+  sentiment_zscore_threshold: 2.0
+
 models:
   quicksilver:
     +materialized: view

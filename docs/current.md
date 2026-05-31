@@ -10,6 +10,8 @@ class Settings {
   +polling_interval_minutes: int
   +lookback_days: int
   +default_tickers: str
+  +expected_daily_headline_count: int
+  +sentiment_max_messages: int
   +negative_sentiment_threshold: float
   +volume_spike_zscore_threshold: float
   +log_level: str
@@ -91,6 +93,16 @@ class SentimentConsumer {
   -_deserialize(raw_bytes: bytes) RawHeadline
 }
 
+class HistoricalBackfill {
+  +plan_only: bool
+  +large_cap_50: bool
+  +from_date: date
+  +to_date: date
+  +chunk_days: int
+  +publish_kafka: bool
+  +score_and_save: bool
+}
+
 FinnhubClient --> RawHeadline : fetches
 HeadlineNormalizer --> RawHeadline : normalizes
 NewsProducer --> RawHeadline : serializes and publishes
@@ -99,4 +111,7 @@ SentimentConsumer --> FinBERTScorer : delegates scoring to
 FinBERTScorer --> SentimentResult : produces
 FinBERTScorer --> ScoredHeadline : builds via score_batch
 ScoredHeadline --> RawHeadline : created from
+HistoricalBackfill --> FinnhubClient : fetches historical windows
+HistoricalBackfill --> NewsProducer : optionally replays events
+HistoricalBackfill --> FinBERTScorer : optionally scores history
 ```

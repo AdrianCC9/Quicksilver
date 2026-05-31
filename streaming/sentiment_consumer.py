@@ -52,7 +52,12 @@ class SentimentConsumer:
                         break
                     raise RuntimeError(f"Consumer error: {msg.error()}")
 
-                headline = self._deserialize(msg.value())
+                try:
+                    headline = self._deserialize(msg.value())
+                except Exception as error:
+                    print(f"Skipping malformed Kafka message: {error}")
+                    continue
+
                 headlines.append(headline)
                 print(f"Consumed: {headline.ticker} — {headline.headline[:60]}")
 

@@ -1,58 +1,55 @@
 """
-Full pipeline test: NewsProducer → Kafka topic → SentimentConsumer
-Verifies that a headline can travel through the pipe and come out scored.
+Opt-in integration test for the Kafka -> FinBERT path.
 
 Requires:
-  - Kafka running (docker compose up -d)
-  - FinBERT model downloaded (first run will download ~400MB)
+  - Kafka running with `docker compose up -d`
+  - RUN_KAFKA_INTEGRATION=true
+  - FinBERT model availability
 """
 
+import os
 from datetime import datetime, timezone
+
+import pytest
+
 from models.raw_headline import RawHeadline
+from sentiment.finbert_scorer import FinBERTScorer
 from streaming.news_producer import NewsProducer
 from streaming.sentiment_consumer import SentimentConsumer
-from sentiment.finbert_scorer import FinBERTScorer
 
-# --- Config ---
-BROKER = "localhost:9092"
-TOPIC = "test_pipeline"  # use a separate topic so we don't pollute raw_headlines
-GROUP = "test-group"
 
-# --- Create a fake headline ---
-test_headline = RawHeadline(
-    ticker="AAPL",
-    headline="Apple reports record quarterly revenue beating analyst expectations",
-    source="Reuters",
-    url="https://example.com/apple-earnings",
-    published_at_utc=datetime.now(timezone.utc),
-    summary=None,
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_KAFKA_INTEGRATION", "false").lower() != "true",
+    reason="Kafka integration tests are opt-in. Set RUN_KAFKA_INTEGRATION=true.",
 )
 
-# --- Step 1: Produce ---
-print("Publishing headline to Kafka...")
-producer = NewsProducer(kafka_broker=BROKER, topic=TOPIC)
-producer.publish_batch([test_headline])
-print("Published.\n")
 
-# --- Step 2: Consume + Score ---
-print("Consuming and scoring...")
-scorer = FinBERTScorer()
-consumer = SentimentConsumer(kafka_broker=BROKER, topic=TOPIC, group_id=GROUP, scorer=scorer)
-results = consumer.consume(max_messages=5)
+def test_kafka_to_finbert_pipeline_smoke():
+    broker = "localhost:9092"
+    topic = "test_pipeline"
+    group = "test-group"
 
-# --- Step 3: Verify ---
-print(f"\nGot {len(results)} scored headline(s):\n")
-for sh in results:
-    print(f"  Ticker:     {sh.ticker}")
-    print(f"  Headline:   {sh.headline}")
-    print(f"  Sentiment:  {sh.sentiment_label}")
-    print(f"  Compound:   {sh.compound_score}")
-    print(f"  Confidence: {sh.confidence}")
-    print(f"  Source Tier: {sh.source_tier}")
-    print(f"  Age (hrs):  {sh.headline_age_hours}")
-    print()
+    test_headline = RawHeadline(
+        ticker="AAPL",
+        headline="Apple reports record quarterly revenue beating analyst expectations",
+        source="Reuters",
+        url="https://example.com/apple-earnings",
+        published_at_utc=datetime.now(timezone.utc),
+        summary=None,
+    )
 
-assert len(results) >= 1, f"Expected 1 result, got {len(results)}"
-assert results[0].ticker == "AAPL"
-assert results[0].sentiment_label in ("positive", "negative", "neutral")
-print("ALL CHECKS PASSED")
+    producer = NewsProducer(kafka_broker=broker, topic=topic)
+    producer.publish_batch([test_headline])
+
+    scorer = FinBERTScorer()
+    consumer = SentimentConsumer(
+        kafka_broker=broker,
+        topic=topic,
+        group_id=group,
+        scorer=scorer,
+    )
+    results = consumer.consume(max_messages=5)
+
+    assert len(results) >= 1
+    assert results[0].ticker == "AAPL"
+    assert results[0].sentiment_label in ("positive", "negative", "neutral")

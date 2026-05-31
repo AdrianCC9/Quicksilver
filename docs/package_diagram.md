@@ -43,23 +43,20 @@ flowchart LR
 
     subgraph alerts["alerts/"]
         alert_engine["alert_engine.py"]
-        notification_service["notification_service.py"]
     end
 
     subgraph dashboard["dashboard/"]
-        dashboard_service["dashboard_service.py"]
-        streamlit_app["streamlit_app.py"]
-    end
-
-    subgraph reporting["reporting/"]
-        powerbi_report["Power BI Report
-(powerbi_report.pbix)"]
-        powerbi_service["Power BI Service
-(scheduled refresh)"]
+        streamlit_app["app.py"]
     end
 
     subgraph orchestration["orchestration/"]
         airflow_dag["quicksilver_dag.py"]
+    end
+
+    subgraph pipelines["pipelines/"]
+        raw_pipeline["ingest_raw_headlines.py"]
+        score_pipeline["ingest_score_headlines.py"]
+        backfill_pipeline["backfill_historical_headlines.py"]
     end
 
     subgraph tests["tests/"]
@@ -73,8 +70,8 @@ flowchart LR
     config --> dbt
     config --> alerts
     config --> dashboard
-    config --> reporting
     config --> orchestration
+    config --> pipelines
 
     models --> ingestion
     models --> streaming
@@ -82,6 +79,7 @@ flowchart LR
     models --> storage
     models --> alerts
     models --> dashboard
+    models --> pipelines
 
     ingestion --> streaming
     news_producer --> kafka_topic
@@ -96,10 +94,7 @@ flowchart LR
 
     dbt --> alerts
     dbt --> dashboard
-    dbt --> reporting
-    powerbi_report --> powerbi_service
 
-    alerts --> notification_service
     orchestration --> ingestion
     orchestration --> streaming
     orchestration --> storage
@@ -107,6 +102,12 @@ flowchart LR
     orchestration --> dbt
     orchestration --> alerts
     orchestration --> dashboard
+    orchestration --> pipelines
+
+    pipelines --> ingestion
+    pipelines --> streaming
+    pipelines --> sentiment
+    pipelines --> storage
 
     tests --> ingestion
     tests --> streaming

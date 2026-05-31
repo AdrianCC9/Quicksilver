@@ -3,7 +3,29 @@ from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from typing import List
 
+from config.watchlist import get_default_watchlist
+
 load_dotenv()
+
+
+def _load_default_tickers() -> List[str]:
+    configured_tickers = os.getenv("DEFAULT_TICKERS", "")
+    use_custom_tickers = os.getenv("USE_CUSTOM_TICKERS", "false").lower() == "true"
+
+    if use_custom_tickers and configured_tickers:
+        return [
+            ticker.strip().upper()
+            for ticker in configured_tickers.split(",")
+            if ticker.strip()
+        ]
+
+    additional_tickers = [
+        ticker.strip().upper()
+        for ticker in os.getenv("ADDITIONAL_TICKERS", "").split(",")
+        if ticker.strip()
+    ]
+    return list(dict.fromkeys(get_default_watchlist() + additional_tickers))
+
 
 @dataclass
 class Settings:
@@ -14,7 +36,7 @@ class Settings:
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///quicksilver.db")
 
     # Kafka
-    kafka_broker: str = os.getenv("KAFKA_BROKER", "localhost:9092")
+    kafka_broker: str = os.getenv("KAFKA_BROKER", "127.0.0.1:9092")
     raw_headlines_topic: str = os.getenv("RAW_HEADLINES_TOPIC", "raw_headlines")
     scored_headlines_topic: str = os.getenv("SCORED_HEADLINES_TOPIC", "scored_headlines")
     sentiment_consumer_group_id: str = os.getenv(
@@ -33,8 +55,9 @@ class Settings:
     lookback_days: int = int(os.getenv("LOOKBACK_DAYS", "3"))
 
     # Tickers
-    default_tickers: List[str] = field(
-        default_factory=lambda: os.getenv("DEFAULT_TICKERS", "AAPL,MSFT,TSLA,NVDA").split(",")
+    default_tickers: List[str] = field(default_factory=_load_default_tickers)
+    expected_daily_headline_count: int = int(
+        os.getenv("EXPECTED_DAILY_HEADLINE_COUNT", "500")
     )
 
     # Alert thresholds
@@ -57,5 +80,6 @@ class Settings:
 
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    sentiment_max_messages: int = int(os.getenv("SENTIMENT_MAX_MESSAGES", "1000"))
 
 settings = Settings()

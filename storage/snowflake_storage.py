@@ -1,8 +1,10 @@
 import os
+import re
 import snowflake.connector
 
 from models.raw_headline import RawHeadline
 from models.scored_headline import ScoredHeadline
+from transformations.headline_normalizer import HeadlineNormalizer
 
 class SnowflakeStorage:
     """
@@ -13,6 +15,14 @@ class SnowflakeStorage:
     """
     def __init__(self) -> None:
         self._connection = None
+        self._normalizer = HeadlineNormalizer()
+
+    @staticmethod
+    def _quote_identifier(identifier: str) -> str:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", identifier):
+            raise ValueError(f"Unsafe Snowflake identifier: {identifier}")
+
+        return f'"{identifier.upper()}"'
     
     def _connect(self):
         if self._connection is None:
@@ -25,6 +35,20 @@ class SnowflakeStorage:
                 database=os.getenv("SNOWFLAKE_DATABASE"),
                 schema=os.getenv("SNOWFLAKE_SCHEMA"),
             )
+            warehouse = os.getenv("SNOWFLAKE_WAREHOUSE")
+            if warehouse:
+                quoted_warehouse = self._quote_identifier(warehouse)
+                with self._connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        CREATE WAREHOUSE IF NOT EXISTS {quoted_warehouse}
+                            WAREHOUSE_SIZE = XSMALL
+                            AUTO_SUSPEND = 60
+                            AUTO_RESUME = TRUE
+                            INITIALLY_SUSPENDED = TRUE
+                        """
+                    )
+                    cursor.execute(f"USE WAREHOUSE {quoted_warehouse}")
 
         return self._connection
     
@@ -42,6 +66,7 @@ class SnowflakeStorage:
                     url STRING,
                     published_at_utc TIMESTAMP_TZ NOT NULL,
                     summary STRING,
+                    content_hash STRING,
                     inserted_at_utc TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
                 )
                 """
@@ -71,30 +96,75 @@ class SnowflakeStorage:
                 """
             )
 
+            cursor.execute(
+                """
+                ALTER TABLE raw_headlines
+                ADD COLUMN IF NOT EXISTS content_hash STRING
+                """
+            )
+
+            cursor.execute(
+                """
+                ALTER TABLE scored_headlines
+                ADD COLUMN IF NOT EXISTS content_hash STRING
+                """
+            )
+
+    def _raw_content_hash(self, headline: RawHeadline) -> str:
+        return self._normalizer.build_content_hash(headline)
+
+    def _scored_content_hash(self, headline: ScoredHeadline) -> str:
+        if headline.content_hash:
+            return headline.content_hash
+
+        raw_headline = RawHeadline(
+            ticker=headline.ticker,
+            headline=headline.headline,
+            source=headline.source,
+            url=headline.url,
+            published_at_utc=headline.published_at_utc,
+            summary=headline.summary,
+        )
+        return self._raw_content_hash(raw_headline)
+
     def save_raw_headline(self, headline: RawHeadline) -> None:
         """
         Insert one RawHeadline into the raw_headline table
         """
         connection = self._connect()
+        content_hash = self._raw_content_hash(headline)
 
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO raw_headlines (
+                MERGE INTO raw_headlines AS target
+                USING (
+                    SELECT
+                        %(ticker)s AS ticker,
+                        %(headline)s AS headline,
+                        %(source)s AS source,
+                        %(url)s AS url,
+                        %(published_at_utc)s AS published_at_utc,
+                        %(summary)s AS summary,
+                        %(content_hash)s AS content_hash
+                ) AS source
+                ON target.content_hash = source.content_hash
+                WHEN NOT MATCHED THEN INSERT (
                     ticker,
                     headline,
                     source,
                     url,
                     published_at_utc,
-                    summary
-                )
-                VALUES (
-                    %(ticker)s,
-                    %(headline)s,
-                    %(source)s,
-                    %(url)s,
-                    %(published_at_utc)s,
-                    %(summary)s
+                    summary,
+                    content_hash
+                ) VALUES (
+                    source.ticker,
+                    source.headline,
+                    source.source,
+                    source.url,
+                    source.published_at_utc,
+                    source.summary,
+                    source.content_hash
                 )
                 """,
                 {
@@ -104,6 +174,7 @@ class SnowflakeStorage:
                     "url": headline.url,
                     "published_at_utc": headline.published_at_utc,
                     "summary": headline.summary,
+                    "content_hash": content_hash,
                 },
             )
 
@@ -119,11 +190,32 @@ class SnowflakeStorage:
         Insert one ScoredHeadline into the scored_headlines table.
         """
         connection = self._connect()
+        content_hash = self._scored_content_hash(headline)
 
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO scored_headlines (
+                MERGE INTO scored_headlines AS target
+                USING (
+                    SELECT
+                        %(ticker)s AS ticker,
+                        %(headline)s AS headline,
+                        %(source)s AS source,
+                        %(url)s AS url,
+                        %(published_at_utc)s AS published_at_utc,
+                        %(sentiment_label)s AS sentiment_label,
+                        %(positive_score)s AS positive_score,
+                        %(neutral_score)s AS neutral_score,
+                        %(negative_score)s AS negative_score,
+                        %(compound_score)s AS compound_score,
+                        %(confidence)s AS confidence,
+                        %(headline_age_hours)s AS headline_age_hours,
+                        %(source_tier)s AS source_tier,
+                        %(summary)s AS summary,
+                        %(content_hash)s AS content_hash
+                ) AS source
+                ON target.content_hash = source.content_hash
+                WHEN NOT MATCHED THEN INSERT (
                     ticker,
                     headline,
                     source,
@@ -139,23 +231,22 @@ class SnowflakeStorage:
                     source_tier,
                     summary,
                     content_hash
-                )
-                VALUES (
-                    %(ticker)s,
-                    %(headline)s,
-                    %(source)s,
-                    %(url)s,
-                    %(published_at_utc)s,
-                    %(sentiment_label)s,
-                    %(positive_score)s,
-                    %(neutral_score)s,
-                    %(negative_score)s,
-                    %(compound_score)s,
-                    %(confidence)s,
-                    %(headline_age_hours)s,
-                    %(source_tier)s,
-                    %(summary)s,
-                    %(content_hash)s
+                ) VALUES (
+                    source.ticker,
+                    source.headline,
+                    source.source,
+                    source.url,
+                    source.published_at_utc,
+                    source.sentiment_label,
+                    source.positive_score,
+                    source.neutral_score,
+                    source.negative_score,
+                    source.compound_score,
+                    source.confidence,
+                    source.headline_age_hours,
+                    source.source_tier,
+                    source.summary,
+                    source.content_hash
                 )
                 """,
                 {
@@ -173,7 +264,7 @@ class SnowflakeStorage:
                     "headline_age_hours": headline.headline_age_hours,
                     "source_tier": headline.source_tier,
                     "summary": headline.summary,
-                    "content_hash": headline.content_hash,
+                    "content_hash": content_hash,
                 },
             )
 

@@ -26,7 +26,7 @@ DBT_PROJECT_DIR = Path(
 ).expanduser().resolve()
 DBT_PROFILES_DIR = Path(
     os.getenv("DBT_PROFILES_DIR")
-    or Path.home() / ".dbt"
+    or PROJECT_ROOT / "dbt"
 ).expanduser().resolve()
 DBT_TARGET = os.getenv("DBT_TARGET")
 
@@ -130,6 +130,17 @@ def _run_dbt_command(*args: str) -> None:
         )
 
 
+def _airflow_failure_alert(context) -> None:
+    _load_runtime_environment()
+
+    try:
+        from alerts.alert_engine import send_pipeline_failure_alert
+
+        send_pipeline_failure_alert(context)
+    except Exception:
+        logging.exception("Failed to send Airflow failure alert.")
+
+
 @dag(
     dag_id="quicksilver_headline_sentiment",
     description="Ingest Finnhub headlines, stream through Kafka, score with FinBERT, load Snowflake, and run dbt models.",
@@ -142,6 +153,7 @@ def _run_dbt_command(*args: str) -> None:
         "depends_on_past": False,
         "retries": 2,
         "retry_delay": timedelta(minutes=5),
+        "on_failure_callback": _airflow_failure_alert,
     },
     tags=["quicksilver", "finnhub", "kafka", "finbert", "snowflake", "dbt"],
 )
@@ -165,12 +177,15 @@ def quicksilver_headline_sentiment():
         _validate_path(DBT_PROFILES_DIR / "profiles.yml", "dbt profiles file")
 
         logging.info(
-            "Quicksilver config loaded: tickers=%s, lookback_days=%s, "
+            "Quicksilver config loaded: tickers=%s, ticker_count=%s, "
+            "lookback_days=%s, expected_daily_headline_count=%s, "
             "polling_interval_minutes=%s, kafka_broker=%s, raw_topic=%s, "
             "scored_topic=%s, consumer_group=%s, finbert_model=%s, "
             "dbt_project_dir=%s, dbt_profiles_dir=%s, dbt_target=%s",
             settings.default_tickers,
+            len(settings.default_tickers),
             settings.lookback_days,
+            settings.expected_daily_headline_count,
             settings.polling_interval_minutes,
             settings.kafka_broker,
             settings.raw_headlines_topic,
@@ -245,7 +260,7 @@ def quicksilver_headline_sentiment():
         )
 
         try:
-            scored_headlines = consumer.consume(max_messages=100)
+            scored_headlines = consumer.consume(max_messages=settings.sentiment_max_messages)
             storage.save_scored_headlines(scored_headlines)
 
             logging.info("Saved %s scored headlines.", len(scored_headlines))
@@ -261,12 +276,22 @@ def quicksilver_headline_sentiment():
 
         _run_dbt_command("run")
 
+    @task
+    def send_sentiment_alerts() -> None:
+        _load_runtime_environment()
+
+        from alerts.alert_engine import main as run_alert_engine
+
+        run_alert_engine()
+
     config_ok = validate_runtime_config()
     tables_ready = ensure_snowflake_tables()
     raw_loaded = ingest_raw_headlines()
     scored_loaded = score_headlines()
     dbt_models_ready = run_dbt_models()
+    alerts_sent = send_sentiment_alerts()
 
-    config_ok >> tables_ready >> raw_loaded >> scored_loaded >> dbt_models_ready
+
+    config_ok >> tables_ready >> raw_loaded >> scored_loaded >> dbt_models_ready >> alerts_sent
 
 quicksilver_headline_sentiment_dag = quicksilver_headline_sentiment()

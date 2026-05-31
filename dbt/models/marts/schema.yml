@@ -1,0 +1,71 @@
+version: 2
+
+models:
+  - name: ticker_sentiment_daily
+    description: Daily ticker-level sentiment aggregates from FinBERT-scored headlines.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: sentiment_date
+        tests:
+          - not_null
+      - name: headline_count
+        tests:
+          - not_null
+      - name: headline_volume_weighted_sentiment_index
+
+  - name: ticker_sentiment_rolling
+    description: Rolling ticker-level sentiment metrics including seven-day averages and volume-weighted indexes.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: sentiment_date
+        tests:
+          - not_null
+      - name: rolling_7_day_avg_compound_score
+      - name: rolling_7_day_volume_weighted_sentiment_index
+
+  - name: sentiment_signal_summary
+    description: Positive and negative sentiment signal flags driven by score thresholds and z-score anomalies.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: sentiment_date
+        tests:
+          - not_null
+      - name: compound_score_zscore
+      - name: is_zscore_anomaly
+      - name: is_positive_sentiment_signal
+      - name: is_negative_sentiment_signal
+
+  - name: market_sentiment_index
+    description: Cross-ticker market sentiment indexes weighted by headline volume, confidence, and source quality.
+    columns:
+      - name: sentiment_date
+        tests:
+          - not_null
+      - name: headline_count
+        tests:
+          - not_null
+      - name: volume_weighted_sentiment_index
+      - name: rolling_7_day_volume_weighted_sentiment_index
+
+  - name: latest_ticker_sentiment
+    description: Most recent scored headline per ticker.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: published_at_utc
+        tests:
+          - not_null
+
+  - name: pipeline_claim_audit
+    description: Warehouse-level audit view for validating resume-scale claims such as 50+ tickers, 500+ headline days, and 2+ years of data.
+    columns:
+      - name: tracked_ticker_count
+      - name: coverage_days
+      - name: max_scored_headlines_in_one_day

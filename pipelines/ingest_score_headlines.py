@@ -1,4 +1,10 @@
 from dotenv import load_dotenv
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import settings
 from sentiment.finbert_scorer import FinBERTScorer
@@ -26,7 +32,7 @@ def main() -> None:
 
     try:
         # Consumer reads RawHeadline objects from Kafka and returns ScoredHeadline objects.
-        scored_headlines = consumer.consume(max_messages=100)
+        scored_headlines = consumer.consume(max_messages=settings.sentiment_max_messages)
 
         # Save scored headlines into Snowflake.
         storage.save_scored_headlines(scored_headlines)
