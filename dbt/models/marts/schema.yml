@@ -68,4 +68,5 @@ models:
     columns:
       - name: tracked_ticker_count
       - name: coverage_days
+      - name: active_scored_days
       - name: max_scored_headlines_in_one_day

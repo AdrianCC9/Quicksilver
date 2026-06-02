@@ -1,6 +1,7 @@
 import os
 import re
 import snowflake.connector
+from uuid import uuid4
 
 from models.raw_headline import RawHeadline
 from models.scored_headline import ScoredHeadline
@@ -127,153 +128,276 @@ class SnowflakeStorage:
         )
         return self._raw_content_hash(raw_headline)
 
+    def _temporary_stage_name(self, prefix: str) -> str:
+        return self._quote_identifier(f"{prefix}_{uuid4().hex}")
+
     def save_raw_headline(self, headline: RawHeadline) -> None:
         """
         Insert one RawHeadline into the raw_headline table
         """
-        connection = self._connect()
-        content_hash = self._raw_content_hash(headline)
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                MERGE INTO raw_headlines AS target
-                USING (
-                    SELECT
-                        %(ticker)s AS ticker,
-                        %(headline)s AS headline,
-                        %(source)s AS source,
-                        %(url)s AS url,
-                        %(published_at_utc)s AS published_at_utc,
-                        %(summary)s AS summary,
-                        %(content_hash)s AS content_hash
-                ) AS source
-                ON target.content_hash = source.content_hash
-                WHEN NOT MATCHED THEN INSERT (
-                    ticker,
-                    headline,
-                    source,
-                    url,
-                    published_at_utc,
-                    summary,
-                    content_hash
-                ) VALUES (
-                    source.ticker,
-                    source.headline,
-                    source.source,
-                    source.url,
-                    source.published_at_utc,
-                    source.summary,
-                    source.content_hash
-                )
-                """,
-                {
-                    "ticker": headline.ticker,
-                    "headline": headline.headline,
-                    "source": headline.source,
-                    "url": headline.url,
-                    "published_at_utc": headline.published_at_utc,
-                    "summary": headline.summary,
-                    "content_hash": content_hash,
-                },
-            )
+        self.save_raw_headlines([headline])
 
     def save_raw_headlines(self, headlines: list[RawHeadline]) -> None:
         """
         Insert many RawHeadline objects.
         """
-        for headline in headlines:
-            self.save_raw_headline(headline)
+        if not headlines:
+            return
+
+        connection = self._connect()
+        stage_table = self._temporary_stage_name("qs_raw_stage")
+        rows = [
+            {
+                "ticker": headline.ticker,
+                "headline": headline.headline,
+                "source": headline.source,
+                "url": headline.url,
+                "published_at_utc": headline.published_at_utc,
+                "summary": headline.summary,
+                "content_hash": self._raw_content_hash(headline),
+            }
+            for headline in headlines
+        ]
+
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute(
+                    f"""
+                    CREATE TEMPORARY TABLE {stage_table} (
+                        ticker STRING,
+                        headline STRING,
+                        source STRING,
+                        url STRING,
+                        published_at_utc TIMESTAMP_TZ,
+                        summary STRING,
+                        content_hash STRING
+                    )
+                    """
+                )
+                cursor.executemany(
+                    f"""
+                    INSERT INTO {stage_table} (
+                        ticker,
+                        headline,
+                        source,
+                        url,
+                        published_at_utc,
+                        summary,
+                        content_hash
+                    ) VALUES (
+                        %(ticker)s,
+                        %(headline)s,
+                        %(source)s,
+                        %(url)s,
+                        %(published_at_utc)s,
+                        %(summary)s,
+                        %(content_hash)s
+                    )
+                    """,
+                    rows,
+                )
+                cursor.execute(
+                    f"""
+                    MERGE INTO raw_headlines AS target
+                    USING (
+                        SELECT
+                            ticker,
+                            headline,
+                            source,
+                            url,
+                            published_at_utc,
+                            summary,
+                            content_hash
+                        FROM {stage_table}
+                        QUALIFY ROW_NUMBER() OVER (
+                            PARTITION BY content_hash
+                            ORDER BY published_at_utc DESC
+                        ) = 1
+                    ) AS source
+                    ON target.content_hash = source.content_hash
+                    WHEN NOT MATCHED THEN INSERT (
+                        ticker,
+                        headline,
+                        source,
+                        url,
+                        published_at_utc,
+                        summary,
+                        content_hash
+                    ) VALUES (
+                        source.ticker,
+                        source.headline,
+                        source.source,
+                        source.url,
+                        source.published_at_utc,
+                        source.summary,
+                        source.content_hash
+                    )
+                    """
+                )
+            finally:
+                cursor.execute(f"DROP TABLE IF EXISTS {stage_table}")
 
     def save_scored_headline(self, headline: ScoredHeadline) -> None:
         """
         Insert one ScoredHeadline into the scored_headlines table.
         """
-        connection = self._connect()
-        content_hash = self._scored_content_hash(headline)
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                MERGE INTO scored_headlines AS target
-                USING (
-                    SELECT
-                        %(ticker)s AS ticker,
-                        %(headline)s AS headline,
-                        %(source)s AS source,
-                        %(url)s AS url,
-                        %(published_at_utc)s AS published_at_utc,
-                        %(sentiment_label)s AS sentiment_label,
-                        %(positive_score)s AS positive_score,
-                        %(neutral_score)s AS neutral_score,
-                        %(negative_score)s AS negative_score,
-                        %(compound_score)s AS compound_score,
-                        %(confidence)s AS confidence,
-                        %(headline_age_hours)s AS headline_age_hours,
-                        %(source_tier)s AS source_tier,
-                        %(summary)s AS summary,
-                        %(content_hash)s AS content_hash
-                ) AS source
-                ON target.content_hash = source.content_hash
-                WHEN NOT MATCHED THEN INSERT (
-                    ticker,
-                    headline,
-                    source,
-                    url,
-                    published_at_utc,
-                    sentiment_label,
-                    positive_score,
-                    neutral_score,
-                    negative_score,
-                    compound_score,
-                    confidence,
-                    headline_age_hours,
-                    source_tier,
-                    summary,
-                    content_hash
-                ) VALUES (
-                    source.ticker,
-                    source.headline,
-                    source.source,
-                    source.url,
-                    source.published_at_utc,
-                    source.sentiment_label,
-                    source.positive_score,
-                    source.neutral_score,
-                    source.negative_score,
-                    source.compound_score,
-                    source.confidence,
-                    source.headline_age_hours,
-                    source.source_tier,
-                    source.summary,
-                    source.content_hash
-                )
-                """,
-                {
-                    "ticker": headline.ticker,
-                    "headline": headline.headline,
-                    "source": headline.source,
-                    "url": headline.url,
-                    "published_at_utc": headline.published_at_utc,
-                    "sentiment_label": headline.sentiment_label,
-                    "positive_score": headline.positive_score,
-                    "neutral_score": headline.neutral_score,
-                    "negative_score": headline.negative_score,
-                    "compound_score": headline.compound_score,
-                    "confidence": headline.confidence,
-                    "headline_age_hours": headline.headline_age_hours,
-                    "source_tier": headline.source_tier,
-                    "summary": headline.summary,
-                    "content_hash": content_hash,
-                },
-            )
+        self.save_scored_headlines([headline])
 
     def save_scored_headlines(self, headlines: list[ScoredHeadline]) -> None:
         """
         Insert many ScoredHeadline objects.
         """
-        for headline in headlines:
-            self.save_scored_headline(headline)
+        if not headlines:
+            return
+
+        connection = self._connect()
+        stage_table = self._temporary_stage_name("qs_scored_stage")
+        rows = [
+            {
+                "ticker": headline.ticker,
+                "headline": headline.headline,
+                "source": headline.source,
+                "url": headline.url,
+                "published_at_utc": headline.published_at_utc,
+                "sentiment_label": headline.sentiment_label,
+                "positive_score": headline.positive_score,
+                "neutral_score": headline.neutral_score,
+                "negative_score": headline.negative_score,
+                "compound_score": headline.compound_score,
+                "confidence": headline.confidence,
+                "headline_age_hours": headline.headline_age_hours,
+                "source_tier": headline.source_tier,
+                "summary": headline.summary,
+                "content_hash": self._scored_content_hash(headline),
+            }
+            for headline in headlines
+        ]
+
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute(
+                    f"""
+                    CREATE TEMPORARY TABLE {stage_table} (
+                        ticker STRING,
+                        headline STRING,
+                        source STRING,
+                        url STRING,
+                        published_at_utc TIMESTAMP_TZ,
+                        sentiment_label STRING,
+                        positive_score FLOAT,
+                        neutral_score FLOAT,
+                        negative_score FLOAT,
+                        compound_score FLOAT,
+                        confidence FLOAT,
+                        headline_age_hours FLOAT,
+                        source_tier INTEGER,
+                        summary STRING,
+                        content_hash STRING
+                    )
+                    """
+                )
+                cursor.executemany(
+                    f"""
+                    INSERT INTO {stage_table} (
+                        ticker,
+                        headline,
+                        source,
+                        url,
+                        published_at_utc,
+                        sentiment_label,
+                        positive_score,
+                        neutral_score,
+                        negative_score,
+                        compound_score,
+                        confidence,
+                        headline_age_hours,
+                        source_tier,
+                        summary,
+                        content_hash
+                    ) VALUES (
+                        %(ticker)s,
+                        %(headline)s,
+                        %(source)s,
+                        %(url)s,
+                        %(published_at_utc)s,
+                        %(sentiment_label)s,
+                        %(positive_score)s,
+                        %(neutral_score)s,
+                        %(negative_score)s,
+                        %(compound_score)s,
+                        %(confidence)s,
+                        %(headline_age_hours)s,
+                        %(source_tier)s,
+                        %(summary)s,
+                        %(content_hash)s
+                    )
+                    """,
+                    rows,
+                )
+                cursor.execute(
+                    f"""
+                    MERGE INTO scored_headlines AS target
+                    USING (
+                        SELECT
+                            ticker,
+                            headline,
+                            source,
+                            url,
+                            published_at_utc,
+                            sentiment_label,
+                            positive_score,
+                            neutral_score,
+                            negative_score,
+                            compound_score,
+                            confidence,
+                            headline_age_hours,
+                            source_tier,
+                            summary,
+                            content_hash
+                        FROM {stage_table}
+                        QUALIFY ROW_NUMBER() OVER (
+                            PARTITION BY content_hash
+                            ORDER BY published_at_utc DESC
+                        ) = 1
+                    ) AS source
+                    ON target.content_hash = source.content_hash
+                    WHEN NOT MATCHED THEN INSERT (
+                        ticker,
+                        headline,
+                        source,
+                        url,
+                        published_at_utc,
+                        sentiment_label,
+                        positive_score,
+                        neutral_score,
+                        negative_score,
+                        compound_score,
+                        confidence,
+                        headline_age_hours,
+                        source_tier,
+                        summary,
+                        content_hash
+                    ) VALUES (
+                        source.ticker,
+                        source.headline,
+                        source.source,
+                        source.url,
+                        source.published_at_utc,
+                        source.sentiment_label,
+                        source.positive_score,
+                        source.neutral_score,
+                        source.negative_score,
+                        source.compound_score,
+                        source.confidence,
+                        source.headline_age_hours,
+                        source.source_tier,
+                        source.summary,
+                        source.content_hash
+                    )
+                    """
+                )
+            finally:
+                cursor.execute(f"DROP TABLE IF EXISTS {stage_table}")
 
     def close(self) -> None:
         """

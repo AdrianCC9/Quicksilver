@@ -229,6 +229,74 @@ def fetch_with_retries(
     ) from last_error
 
 
+def fetch_adaptive_windows(
+    client: FinnhubClient,
+    ticker: str,
+    from_date: date,
+    to_date: date,
+    retry_attempts: int,
+    retry_sleep_seconds: float,
+    split_threshold: int,
+    stats: BackfillStats,
+) -> list[tuple[date, date, list[RawHeadline]]]:
+    stats.requests_attempted += 1
+
+    try:
+        headlines = fetch_with_retries(
+            client=client,
+            ticker=ticker,
+            from_date=from_date,
+            to_date=to_date,
+            retry_attempts=retry_attempts,
+            retry_sleep_seconds=retry_sleep_seconds,
+        )
+    except Exception:
+        stats.failed_requests += 1
+        logging.exception(
+            "Skipping failed window for %s %s..%s.",
+            ticker,
+            from_date,
+            to_date,
+        )
+        return []
+
+    window_days = (to_date - from_date).days + 1
+    if split_threshold and len(headlines) >= split_threshold and window_days > 1:
+        midpoint = from_date + timedelta(days=(window_days // 2) - 1)
+        next_start = midpoint + timedelta(days=1)
+        logging.info(
+            "%s %s..%s fetched=%s, splitting window to avoid API caps.",
+            ticker,
+            from_date,
+            to_date,
+            len(headlines),
+        )
+        return (
+            fetch_adaptive_windows(
+                client=client,
+                ticker=ticker,
+                from_date=from_date,
+                to_date=midpoint,
+                retry_attempts=retry_attempts,
+                retry_sleep_seconds=retry_sleep_seconds,
+                split_threshold=split_threshold,
+                stats=stats,
+            )
+            + fetch_adaptive_windows(
+                client=client,
+                ticker=ticker,
+                from_date=next_start,
+                to_date=to_date,
+                retry_attempts=retry_attempts,
+                retry_sleep_seconds=retry_sleep_seconds,
+                split_threshold=split_threshold,
+                stats=stats,
+            )
+        )
+
+    return [(from_date, to_date, headlines)]
+
+
 def build_parser() -> argparse.ArgumentParser:
     today = date.today()
     default_from_date = today - timedelta(days=730)
@@ -249,6 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sleep-seconds", type=float, default=0.5)
     parser.add_argument("--retry-attempts", type=int, default=3)
     parser.add_argument("--retry-sleep-seconds", type=float, default=3.0)
+    parser.add_argument("--split-threshold", type=int, default=240)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--create-tables", action="store_true")
@@ -337,58 +406,49 @@ def main() -> None:
                     stop_requested = True
                     break
 
-                stats.requests_attempted += 1
-
-                try:
-                    raw_headlines = fetch_with_retries(
-                        client=client,
-                        ticker=ticker,
-                        from_date=window_start,
-                        to_date=window_end,
-                        retry_attempts=args.retry_attempts,
-                        retry_sleep_seconds=args.retry_sleep_seconds,
-                    )
-                except Exception:
-                    stats.failed_requests += 1
-                    logging.exception(
-                        "Skipping failed window for %s %s..%s.",
-                        ticker,
-                        window_start,
-                        window_end,
-                    )
-                    continue
-
-                normalized_headlines = normalize_headlines(raw_headlines)
-                unique_headlines = dedupe_headlines(normalized_headlines)
-
-                stats.headlines_fetched += len(raw_headlines)
-                stats.headlines_after_dedupe += len(unique_headlines)
-
-                if not args.dry_run and storage:
-                    storage.save_raw_headlines(unique_headlines)
-                    stats.raw_saved += len(unique_headlines)
-
-                if producer:
-                    producer.publish_batch(unique_headlines)
-                    stats.kafka_published += len(unique_headlines)
-
-                if scorer and storage:
-                    scored_headlines = scorer.score_batch(unique_headlines)
-                    attach_content_hashes(scored_headlines)
-                    storage.save_scored_headlines(scored_headlines)
-                    stats.scored_saved += len(scored_headlines)
-
-                logging.info(
-                    "%s %s..%s fetched=%s unique=%s",
-                    ticker,
-                    window_start,
-                    window_end,
-                    len(raw_headlines),
-                    len(unique_headlines),
+                window_results = fetch_adaptive_windows(
+                    client=client,
+                    ticker=ticker,
+                    from_date=window_start,
+                    to_date=window_end,
+                    retry_attempts=args.retry_attempts,
+                    retry_sleep_seconds=args.retry_sleep_seconds,
+                    split_threshold=args.split_threshold,
+                    stats=stats,
                 )
 
-                if args.sleep_seconds:
-                    time.sleep(args.sleep_seconds)
+                for result_start, result_end, raw_headlines in window_results:
+                    normalized_headlines = normalize_headlines(raw_headlines)
+                    unique_headlines = dedupe_headlines(normalized_headlines)
+
+                    stats.headlines_fetched += len(raw_headlines)
+                    stats.headlines_after_dedupe += len(unique_headlines)
+
+                    if not args.dry_run and storage:
+                        storage.save_raw_headlines(unique_headlines)
+                        stats.raw_saved += len(unique_headlines)
+
+                    if producer:
+                        producer.publish_batch(unique_headlines)
+                        stats.kafka_published += len(unique_headlines)
+
+                    if scorer and storage:
+                        scored_headlines = scorer.score_batch(unique_headlines)
+                        attach_content_hashes(scored_headlines)
+                        storage.save_scored_headlines(scored_headlines)
+                        stats.scored_saved += len(scored_headlines)
+
+                    logging.info(
+                        "%s %s..%s fetched=%s unique=%s",
+                        ticker,
+                        result_start,
+                        result_end,
+                        len(raw_headlines),
+                        len(unique_headlines),
+                    )
+
+                    if args.sleep_seconds:
+                        time.sleep(args.sleep_seconds)
 
     finally:
         if storage:
