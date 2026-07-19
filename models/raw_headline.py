@@ -14,3 +14,6 @@ class RawHeadline:
     url: str
     published_at_utc: datetime
     summary: str | None = None
+    category: str = "financial"
+    topic: str | None = None
+    industry: str | None = None

@@ -47,6 +47,9 @@ class HeadlineNormalizer:
             published_at_utc=self._normalize_timestamp(headline.published_at_utc),
             summary=self._clean_optional_text(headline.summary),
             url=self._clean_text(headline.url),
+            category=self._clean_text(headline.category).lower() or "financial",
+            topic=self._clean_optional_text(headline.topic),
+            industry=self._clean_optional_text(headline.industry),
         )
     
     @staticmethod
@@ -59,6 +62,9 @@ class HeadlineNormalizer:
                 headline.url,
                 headline.published_at_utc.isoformat(),
                 headline.summary or "",
+                headline.category,
+                headline.topic or "",
+                headline.industry or "",
             ]
         )
         return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()

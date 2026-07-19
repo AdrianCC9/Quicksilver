@@ -58,6 +58,63 @@ TOP_50_EQUITY_TICKERS: tuple[str, ...] = (
     "AMGN",
 )
 
+EXPANDED_EQUITY_TICKERS: tuple[str, ...] = TOP_50_EQUITY_TICKERS + (
+    "ADBE",
+    "AMAT",
+    "ANET",
+    "AXP",
+    "BA",
+    "BKNG",
+    "BLK",
+    "C",
+    "CMCSA",
+    "COP",
+    "DHR",
+    "ELV",
+    "ETN",
+    "FI",
+    "GS",
+    "HON",
+    "LOW",
+    "LRCX",
+    "MS",
+    "MU",
+    "NEE",
+    "NKE",
+    "PANW",
+    "PFE",
+    "PLD",
+    "RTX",
+    "SBUX",
+    "SCHW",
+    "SPGI",
+    "T",
+    "UNH",
+    "UNP",
+    "UPS",
+    "VRTX",
+    "SHOP",
+    "RY",
+    "TD",
+    "BMO",
+    "BNS",
+    "CM",
+    "CNQ",
+    "ENB",
+    "TRP",
+    "SU",
+    "BCE",
+    "CP",
+    "CNR",
+    "ATD",
+    "IFC",
+    "MFC",
+)
+
 
 def get_default_watchlist() -> list[str]:
     return list(TOP_50_EQUITY_TICKERS)
+
+
+def get_expanded_watchlist() -> list[str]:
+    return list(dict.fromkeys(EXPANDED_EQUITY_TICKERS))

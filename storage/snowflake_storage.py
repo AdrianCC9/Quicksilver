@@ -1,11 +1,16 @@
 import os
 import re
-import snowflake.connector
 from uuid import uuid4
 
 from models.raw_headline import RawHeadline
 from models.scored_headline import ScoredHeadline
 from transformations.headline_normalizer import HeadlineNormalizer
+
+try:
+    import snowflake.connector
+except ImportError:
+    snowflake = None  # type: ignore[assignment]
+
 
 class SnowflakeStorage:
     """
@@ -27,6 +32,13 @@ class SnowflakeStorage:
     
     def _connect(self):
         if self._connection is None:
+            if snowflake is None:
+                raise RuntimeError(
+                    "Snowflake storage requires the optional "
+                    "snowflake-connector-python dependency. Install "
+                    "requirements/full.txt to use STORAGE_BACKEND=snowflake."
+                )
+
             self._connection = snowflake.connector.connect(
                 account=os.getenv("SNOWFLAKE_ACCOUNT"),
                 user=os.getenv("SNOWFLAKE_USER"),
@@ -67,6 +79,9 @@ class SnowflakeStorage:
                     url STRING,
                     published_at_utc TIMESTAMP_TZ NOT NULL,
                     summary STRING,
+                    category STRING,
+                    topic STRING,
+                    industry STRING,
                     content_hash STRING,
                     inserted_at_utc TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
                 )
@@ -91,6 +106,9 @@ class SnowflakeStorage:
                     headline_age_hours FLOAT NOT NULL,
                     source_tier INTEGER NOT NULL,
                     summary STRING,
+                    category STRING,
+                    topic STRING,
+                    industry STRING,
                     content_hash STRING,
                     inserted_at_utc TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
                 )
@@ -103,11 +121,47 @@ class SnowflakeStorage:
                 ADD COLUMN IF NOT EXISTS content_hash STRING
                 """
             )
+            cursor.execute(
+                """
+                ALTER TABLE raw_headlines
+                ADD COLUMN IF NOT EXISTS category STRING
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE raw_headlines
+                ADD COLUMN IF NOT EXISTS topic STRING
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE raw_headlines
+                ADD COLUMN IF NOT EXISTS industry STRING
+                """
+            )
 
             cursor.execute(
                 """
                 ALTER TABLE scored_headlines
                 ADD COLUMN IF NOT EXISTS content_hash STRING
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE scored_headlines
+                ADD COLUMN IF NOT EXISTS category STRING
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE scored_headlines
+                ADD COLUMN IF NOT EXISTS topic STRING
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE scored_headlines
+                ADD COLUMN IF NOT EXISTS industry STRING
                 """
             )
 
@@ -125,6 +179,9 @@ class SnowflakeStorage:
             url=headline.url,
             published_at_utc=headline.published_at_utc,
             summary=headline.summary,
+            category=headline.category,
+            topic=headline.topic,
+            industry=headline.industry,
         )
         return self._raw_content_hash(raw_headline)
 
@@ -154,6 +211,9 @@ class SnowflakeStorage:
                 "url": headline.url,
                 "published_at_utc": headline.published_at_utc,
                 "summary": headline.summary,
+                "category": headline.category,
+                "topic": headline.topic,
+                "industry": headline.industry,
                 "content_hash": self._raw_content_hash(headline),
             }
             for headline in headlines
@@ -170,6 +230,9 @@ class SnowflakeStorage:
                         url STRING,
                         published_at_utc TIMESTAMP_TZ,
                         summary STRING,
+                        category STRING,
+                        topic STRING,
+                        industry STRING,
                         content_hash STRING
                     )
                     """
@@ -183,6 +246,9 @@ class SnowflakeStorage:
                         url,
                         published_at_utc,
                         summary,
+                        category,
+                        topic,
+                        industry,
                         content_hash
                     ) VALUES (
                         %(ticker)s,
@@ -191,6 +257,9 @@ class SnowflakeStorage:
                         %(url)s,
                         %(published_at_utc)s,
                         %(summary)s,
+                        %(category)s,
+                        %(topic)s,
+                        %(industry)s,
                         %(content_hash)s
                     )
                     """,
@@ -207,6 +276,9 @@ class SnowflakeStorage:
                             url,
                             published_at_utc,
                             summary,
+                            category,
+                            topic,
+                            industry,
                             content_hash
                         FROM {stage_table}
                         QUALIFY ROW_NUMBER() OVER (
@@ -222,6 +294,9 @@ class SnowflakeStorage:
                         url,
                         published_at_utc,
                         summary,
+                        category,
+                        topic,
+                        industry,
                         content_hash
                     ) VALUES (
                         source.ticker,
@@ -230,6 +305,9 @@ class SnowflakeStorage:
                         source.url,
                         source.published_at_utc,
                         source.summary,
+                        source.category,
+                        source.topic,
+                        source.industry,
                         source.content_hash
                     )
                     """
@@ -268,6 +346,9 @@ class SnowflakeStorage:
                 "headline_age_hours": headline.headline_age_hours,
                 "source_tier": headline.source_tier,
                 "summary": headline.summary,
+                "category": headline.category,
+                "topic": headline.topic,
+                "industry": headline.industry,
                 "content_hash": self._scored_content_hash(headline),
             }
             for headline in headlines
@@ -292,6 +373,9 @@ class SnowflakeStorage:
                         headline_age_hours FLOAT,
                         source_tier INTEGER,
                         summary STRING,
+                        category STRING,
+                        topic STRING,
+                        industry STRING,
                         content_hash STRING
                     )
                     """
@@ -313,6 +397,9 @@ class SnowflakeStorage:
                         headline_age_hours,
                         source_tier,
                         summary,
+                        category,
+                        topic,
+                        industry,
                         content_hash
                     ) VALUES (
                         %(ticker)s,
@@ -329,6 +416,9 @@ class SnowflakeStorage:
                         %(headline_age_hours)s,
                         %(source_tier)s,
                         %(summary)s,
+                        %(category)s,
+                        %(topic)s,
+                        %(industry)s,
                         %(content_hash)s
                     )
                     """,
@@ -353,6 +443,9 @@ class SnowflakeStorage:
                             headline_age_hours,
                             source_tier,
                             summary,
+                            category,
+                            topic,
+                            industry,
                             content_hash
                         FROM {stage_table}
                         QUALIFY ROW_NUMBER() OVER (
@@ -376,6 +469,9 @@ class SnowflakeStorage:
                         headline_age_hours,
                         source_tier,
                         summary,
+                        category,
+                        topic,
+                        industry,
                         content_hash
                     ) VALUES (
                         source.ticker,
@@ -392,6 +488,9 @@ class SnowflakeStorage:
                         source.headline_age_hours,
                         source.source_tier,
                         source.summary,
+                        source.category,
+                        source.topic,
+                        source.industry,
                         source.content_hash
                     )
                     """

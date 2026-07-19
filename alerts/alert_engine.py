@@ -1,4 +1,5 @@
 import os
+import logging
 import smtplib
 from email.message import EmailMessage
 from typing import Any
@@ -10,6 +11,9 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
+
+
+logger = logging.getLogger(__name__)
 
 
 REQUIRED_ENV_VARS = [
@@ -142,7 +146,7 @@ def format_pipeline_failure_message(context: dict[str, Any]) -> str:
 
 def send_pipeline_failure_alert(context: dict[str, Any]) -> None:
     message = format_pipeline_failure_message(context)
-    print(message)
+    logger.error(message)
     send_slack_alert(message)
     send_email_alert(message)
 

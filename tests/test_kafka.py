@@ -1,7 +1,6 @@
 import os
 
 import pytest
-from confluent_kafka import Producer
 
 
 pytestmark = pytest.mark.skipif(
@@ -11,6 +10,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_kafka_producer_delivery_smoke():
+    confluent_kafka = pytest.importorskip("confluent_kafka")
     delivered = []
     failed = []
 
@@ -20,7 +20,7 @@ def test_kafka_producer_delivery_smoke():
         else:
             delivered.append((msg.topic(), msg.partition()))
 
-    producer = Producer({"bootstrap.servers": "localhost:9092"})
+    producer = confluent_kafka.Producer({"bootstrap.servers": "localhost:9092"})
 
     producer.produce(
         topic="raw_headlines",

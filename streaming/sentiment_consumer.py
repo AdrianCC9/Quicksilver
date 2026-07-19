@@ -1,17 +1,34 @@
 import json
-from confluent_kafka import Consumer, KafkaError
+import logging
+from datetime import datetime
+from typing import Any
+
 from models.raw_headline import RawHeadline
 from models.scored_headline import ScoredHeadline
 from sentiment.finbert_scorer import FinBERTScorer
-from datetime import datetime, timezone
+
+try:
+    from confluent_kafka import Consumer, KafkaError
+except ImportError:
+    Consumer = None  # type: ignore[assignment]
+    KafkaError = None  # type: ignore[assignment]
+
+
+logger = logging.getLogger(__name__)
 
 
 class SentimentConsumer:
     def __init__(self, kafka_broker: str, topic: str, group_id: str, scorer: FinBERTScorer):
+        if Consumer is None:
+            raise RuntimeError(
+                "Kafka consumption requires the optional confluent-kafka dependency. "
+                "Install requirements/full.txt to use the streaming pipeline."
+            )
+
         self._topic = topic
         self._scorer = scorer
 
-        self._consumer = Consumer({
+        self._consumer: Any = Consumer({
             "bootstrap.servers": kafka_broker,
             "group.id": group_id,
             "auto.offset.reset": "earliest",
@@ -42,24 +59,27 @@ class SentimentConsumer:
                 if msg is None:
                     empty_polls += 1
                     if empty_polls >= 3:
-                        print("No messages waiting, stopping.")
+                        logger.info("No messages waiting, stopping.")
                         break
                     continue
 
                 if msg.error():
-                    if msg.error().code() == KafkaError._PARTITION_EOF:
-                        print("Reached end of topic.")
+                    if (
+                        KafkaError is not None
+                        and msg.error().code() == KafkaError._PARTITION_EOF
+                    ):
+                        logger.info("Reached end of topic.")
                         break
                     raise RuntimeError(f"Consumer error: {msg.error()}")
 
                 try:
                     headline = self._deserialize(msg.value())
                 except Exception as error:
-                    print(f"Skipping malformed Kafka message: {error}")
+                    logger.warning("Skipping malformed Kafka message: %s", error)
                     continue
 
                 headlines.append(headline)
-                print(f"Consumed: {headline.ticker} — {headline.headline[:60]}")
+                logger.info("Consumed: %s - %s", headline.ticker, headline.headline[:60])
 
         finally:
             self._consumer.close()

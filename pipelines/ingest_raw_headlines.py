@@ -10,13 +10,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from config import settings
 from ingestion.finnhub_client import FinnhubClient
-from storage.snowflake_storage import SnowflakeStorage
+from storage.factory import build_storage
 from streaming.news_producer import NewsProducer
 from transformations.normalize_headlines import normalize_headlines
 
 def main() -> None:
     """
-    Fetch raw headlines, normalize them, save them to Snowflake,
+    Fetch raw headlines, normalize them, save them to configured storage,
     and then publish them to Kafka.
     """
     # Load config values from .env into environment variables.
@@ -26,13 +26,16 @@ def main() -> None:
     from_date = today - timedelta(days=settings.lookback_days)
 
     client = FinnhubClient()
-    storage = SnowflakeStorage()
+    storage = build_storage()
     producer = NewsProducer(
         kafka_broker=settings.kafka_broker,
         topic=settings.raw_headlines_topic,
     )
 
     try:
+        if hasattr(storage, "create_tables"):
+            storage.create_tables()
+
         # Get raw headline objects from Finnhub
         raw_headlines = client.fetch_batch_news(
             tickers=settings.default_tickers,
@@ -43,7 +46,7 @@ def main() -> None:
         # Normalize RawHeadline objects.
         normalized_headlines = normalize_headlines(raw_headlines)
 
-        # Save raw data into Snowflake.
+        # Save raw data into the configured storage backend.
         storage.save_raw_headlines(normalized_headlines)
 
         # Send raw data into Kafka for scoring.

@@ -23,7 +23,7 @@ from config.watchlist import TOP_50_EQUITY_TICKERS
 from ingestion.finnhub_client import FinnhubClient
 from models.raw_headline import RawHeadline
 from sentiment.finbert_scorer import FinBERTScorer
-from storage.snowflake_storage import SnowflakeStorage
+from storage.factory import build_storage
 from streaming.news_producer import NewsProducer
 from transformations.normalize_headlines import normalize_headlines
 from transformations.headline_normalizer import HeadlineNormalizer
@@ -146,7 +146,7 @@ def validate_environment(args: argparse.Namespace) -> None:
             "be a placeholder value."
         )
 
-    if args.dry_run:
+    if args.dry_run or args.storage_backend != "snowflake":
         return
 
     missing_snowflake_vars = [
@@ -189,6 +189,9 @@ def attach_content_hashes(scored_headlines) -> None:
             url=scored_headline.url,
             published_at_utc=scored_headline.published_at_utc,
             summary=scored_headline.summary,
+            category=scored_headline.category,
+            topic=scored_headline.topic,
+            industry=scored_headline.industry,
         )
         scored_headline.content_hash = normalizer.build_content_hash(raw_headline)
 
@@ -303,7 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Backfill historical Finnhub headlines into Snowflake, with optional "
+            "Backfill historical Finnhub headlines into configured storage, with optional "
             "Kafka publishing and FinBERT scoring."
         )
     )
@@ -321,6 +324,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--create-tables", action="store_true")
+    parser.add_argument(
+        "--storage-backend",
+        choices=["mysql", "local", "local_mysql", "snowflake"],
+        default=settings.storage_backend,
+    )
     parser.add_argument("--publish-kafka", action="store_true")
     parser.add_argument("--score-and-save", action="store_true")
     parser.add_argument("--log-level", default=settings.log_level)
@@ -373,7 +381,7 @@ def main() -> None:
         )
 
     client = FinnhubClient(api_key=settings.finnhub_api_key)
-    storage = None if args.dry_run else SnowflakeStorage()
+    storage = None if args.dry_run else build_storage(args.storage_backend)
     producer = None
     scorer = None
     stats = BackfillStats()

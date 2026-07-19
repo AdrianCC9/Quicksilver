@@ -1,11 +1,28 @@
 import json
-from confluent_kafka import Producer
+import logging
+from typing import Any
+
 from models.raw_headline import RawHeadline
+
+try:
+    from confluent_kafka import Producer
+except ImportError:
+    Producer = None  # type: ignore[assignment]
+
+
+logger = logging.getLogger(__name__)
+
 
 class NewsProducer:
     def __init__(self, kafka_broker: str, topic: str):
+        if Producer is None:
+            raise RuntimeError(
+                "Kafka publishing requires the optional confluent-kafka dependency. "
+                "Install requirements/full.txt to use the streaming pipeline."
+            )
+
         self._topic = topic
-        self._producer = Producer({"bootstrap.servers": kafka_broker})
+        self._producer: Any = Producer({"bootstrap.servers": kafka_broker})
 
     def _serialize(self, headline: RawHeadline) -> bytes:
         # Convert raw headline data into bytes
@@ -39,7 +56,7 @@ class NewsProducer:
     def _delivery_callback(err, msg):
         # Kafka calls this when message is confirmed delivered
         if err:
-            print(f"Delivery failed: {err}")
+            logger.error("Kafka delivery failed: %s", err)
         else:
-            print(f"Delivered to {msg.topic()} [{msg.partition()}]")
+            logger.info("Delivered to %s [%s]", msg.topic(), msg.partition())
     

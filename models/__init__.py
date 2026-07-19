@@ -1,3 +1,5 @@
-from .raw_headline import RawHeadline
-from .sentiment_result import SentimentResult
-from .scored_headline import ScoredHeadline
+from .raw_headline import RawHeadline as RawHeadline
+from .scored_headline import ScoredHeadline as ScoredHeadline
+from .sentiment_result import SentimentResult as SentimentResult
+
+__all__ = ["RawHeadline", "ScoredHeadline", "SentimentResult"]

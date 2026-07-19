@@ -7,13 +7,13 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements/local.txt requirements-local.txt
 RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir -r requirements.txt
+    && python -m pip install --no-cache-dir -r requirements-local.txt
 
 COPY . .
 
-CMD ["python", "pipelines/ingest_raw_headlines.py"]
+CMD ["python", "pipelines/run_local_pipeline.py"]

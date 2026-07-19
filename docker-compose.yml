@@ -1,5 +1,24 @@
 services:
 
+  mysql:
+    image: mysql:8.0
+    container_name: quicksilver-mysql
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: quicksilver_root
+      MYSQL_DATABASE: quicksilver
+      MYSQL_USER: quicksilver
+      MYSQL_PASSWORD: quicksilver
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./.data/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uquicksilver", "-pquicksilver"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     container_name: quicksilver-zookeeper
@@ -25,44 +44,62 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
 
   pipeline:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     container_name: quicksilver-pipeline
     env_file:
       - .env
     environment:
       KAFKA_BROKER: kafka:29092
+      STORAGE_BACKEND: mysql
+      DATABASE_URL: mysql+pymysql://quicksilver:quicksilver@mysql:3306/quicksilver?charset=utf8mb4
       DBT_PROJECT_DIR: /app/dbt
       DBT_PROFILES_DIR: /app/dbt
       DEFAULT_TICKERS: ""
     depends_on:
-      - kafka
+      kafka:
+        condition: service_started
+      mysql:
+        condition: service_healthy
     profiles:
       - pipeline
     command: ["python", "pipelines/ingest_raw_headlines.py"]
 
   sentiment-worker:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     container_name: quicksilver-sentiment-worker
     env_file:
       - .env
     environment:
       KAFKA_BROKER: kafka:29092
+      STORAGE_BACKEND: mysql
+      DATABASE_URL: mysql+pymysql://quicksilver:quicksilver@mysql:3306/quicksilver?charset=utf8mb4
+      SENTIMENT_BACKEND: lexicon
       SENTIMENT_MAX_MESSAGES: 1000
     depends_on:
-      - kafka
+      kafka:
+        condition: service_started
+      mysql:
+        condition: service_healthy
     profiles:
       - pipeline
     command: ["python", "pipelines/ingest_score_headlines.py"]
 
   streamlit:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.local
     container_name: quicksilver-streamlit
-    env_file:
-      - .env
     environment:
-      KAFKA_BROKER: kafka:29092
+      STORAGE_BACKEND: mysql
+      DATABASE_URL: mysql+pymysql://quicksilver:quicksilver@mysql:3306/quicksilver?charset=utf8mb4
+      SENTIMENT_BACKEND: lexicon
     depends_on:
-      - kafka
+      mysql:
+        condition: service_healthy
     ports:
       - "8501:8501"
     profiles:
@@ -74,8 +111,104 @@ services:
       - --server.address=0.0.0.0
       - --server.port=8501
 
+  local-pipeline:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.local
+    container_name: quicksilver-local-pipeline
+    environment:
+      STORAGE_BACKEND: mysql
+      DATABASE_URL: mysql+pymysql://quicksilver:quicksilver@mysql:3306/quicksilver?charset=utf8mb4
+      SENTIMENT_BACKEND: lexicon
+      FINNHUB_ENABLED: "false"
+      PUBLIC_NEWS_ENABLED: "true"
+      POLITICAL_NEWS_ENABLED: "true"
+      PUBLIC_NEWS_TIMEOUT_SECONDS: 8
+      PUBLIC_NEWS_MAX_ITEMS_PER_FEED: 8
+      PORTFOLIO_INITIAL_CASH_CAD: 5000
+      PRICE_PROVIDER_ORDER: ${PRICE_PROVIDER_ORDER:-polygon,alpha_vantage,yahoo,stooq}
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
+      LOCAL_HEALTH_NOTIFICATIONS_ENABLED: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles:
+      - local-pipeline
+    command:
+      - python
+      - pipelines/run_local_pipeline.py
+      - --large-cap-100
+      - --loop
+      - --interval-minutes
+      - "60"
+      - --seed-demo-if-empty
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.local
+    container_name: quicksilver-migrate
+    environment:
+      STORAGE_BACKEND: mysql
+      DATABASE_URL: mysql+pymysql://quicksilver:quicksilver@mysql:3306/quicksilver?charset=utf8mb4
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles:
+      - maintenance
+    command: ["python", "scripts/apply_migrations.py"]
+
+  health-check:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.local
+    container_name: quicksilver-health-check
+    environment:
+      STORAGE_BACKEND: mysql
+      DATABASE_URL: mysql+pymysql://quicksilver:quicksilver@mysql:3306/quicksilver?charset=utf8mb4
+      LOCAL_HEALTH_NOTIFICATIONS_ENABLED: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles:
+      - maintenance
+    command: ["python", "scripts/check_local_health.py"]
+
+  weekly-report:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.local
+    container_name: quicksilver-weekly-report
+    environment:
+      STORAGE_BACKEND: mysql
+      DATABASE_URL: mysql+pymysql://quicksilver:quicksilver@mysql:3306/quicksilver?charset=utf8mb4
+      REPORT_OUTPUT_DIR: .data/reports
+    volumes:
+      - ./.data/reports:/app/.data/reports
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles:
+      - reports
+    command: ["python", "scripts/generate_weekly_report.py"]
+
+  test:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.test
+    container_name: quicksilver-test
+    environment:
+      STORAGE_BACKEND: mysql
+      SENTIMENT_BACKEND: lexicon
+    profiles:
+      - test
+    command: ["python", "-m", "pytest", "tests"]
+
   airflow:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     container_name: quicksilver-airflow
     env_file:
       - .env

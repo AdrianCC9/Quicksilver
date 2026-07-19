@@ -12,11 +12,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-from models.raw_headline import RawHeadline
-from sentiment.finbert_scorer import FinBERTScorer
-from streaming.news_producer import NewsProducer
-from streaming.sentiment_consumer import SentimentConsumer
-
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_KAFKA_INTEGRATION", "false").lower() != "true",
@@ -25,6 +20,14 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_kafka_to_finbert_pipeline_smoke():
+    pytest.importorskip("confluent_kafka")
+    pytest.importorskip("transformers")
+
+    from models.raw_headline import RawHeadline
+    from sentiment.finbert_scorer import FinBERTScorer
+    from streaming.news_producer import NewsProducer
+    from streaming.sentiment_consumer import SentimentConsumer
+
     broker = "localhost:9092"
     topic = "test_pipeline"
     group = "test-group"

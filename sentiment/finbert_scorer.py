@@ -1,22 +1,31 @@
 from __future__ import annotations
+
+import logging
 import os
 from typing import Any
 from datetime import datetime, timezone
-from transformers import pipeline
 
 from models.raw_headline import RawHeadline
 from models.sentiment_result import SentimentResult
 from models.scored_headline import ScoredHeadline
+from sentiment.source_quality import classify_source
 
-TIER1_SOURCES = {
-    "reuters", "bloomberg", "wsj", "wall street journal",
-    "financial times", "ft", "cnbc", "associated press", "ap"
-}
 
-TIER2_SOURCES = {
-    "marketwatch", "seeking alpha", "benzinga",
-    "yahoo finance", "motley fool", "investopedia"
-}
+logger = logging.getLogger(__name__)
+
+
+def pipeline(*args: Any, **kwargs: Any) -> Any:
+    try:
+        from transformers import pipeline as transformers_pipeline
+    except ImportError as error:
+        raise RuntimeError(
+            "FinBERT scoring requires the optional transformers dependency. "
+            "Install requirements/full.txt or set SENTIMENT_BACKEND=lexicon "
+            "for the lightweight local pipeline."
+        ) from error
+
+    return transformers_pipeline(*args, **kwargs)
+
 
 class FinBERTScorer:
     def __init__(
@@ -28,7 +37,7 @@ class FinBERTScorer:
         self.model_name = model_name
         self.batch_size = batch_size or self._default_batch_size()
         self.device = self._resolve_device() if device is None else device
-        self.classifier = pipeline(
+        self.classifier = self._build_classifier(
             task="text-classification",
             model=model_name,
             tokenizer=model_name,
@@ -39,13 +48,17 @@ class FinBERTScorer:
         )
 
     @staticmethod
+    def _build_classifier(**pipeline_kwargs: Any) -> Any:
+        return pipeline(**pipeline_kwargs)
+
+    @staticmethod
     def _default_batch_size() -> int:
         configured_batch_size = os.getenv("FINBERT_BATCH_SIZE")
         if configured_batch_size:
             try:
                 return max(1, int(configured_batch_size))
             except ValueError:
-                print(
+                logger.warning(
                     "Invalid FINBERT_BATCH_SIZE; falling back to batch size 64."
                 )
 
@@ -61,7 +74,7 @@ class FinBERTScorer:
             if torch.cuda.is_available():
                 return 0
         except Exception as e:
-            print(f"Could not inspect accelerator device, using CPU: {e}")
+            logger.warning("Could not inspect accelerator device, using CPU: %s", e)
 
         return -1
     
@@ -71,12 +84,7 @@ class FinBERTScorer:
     
     @staticmethod
     def _classify_source(source: str) -> int:
-        source_lower = source.strip().lower()
-        if any(s in source_lower for s in TIER1_SOURCES):
-            return 1
-        if any(s in source_lower for s in TIER2_SOURCES):
-            return 2
-        return 3
+        return classify_source(source)
     
     @staticmethod
     def _calculate_age_hours(published_at_utc: datetime) -> float:
@@ -146,6 +154,9 @@ class FinBERTScorer:
             confidence=result.confidence,
             headline_age_hours=self._calculate_age_hours(headline.published_at_utc),
             source_tier=self._classify_source(headline.source),
+            category=headline.category,
+            topic=headline.topic,
+            industry=headline.industry,
         )
 
     def _score_batch_fast(self, headlines: list[RawHeadline]) -> list[ScoredHeadline] | None:
@@ -176,7 +187,10 @@ class FinBERTScorer:
             if scored_fast is not None:
                 return scored_fast
         except Exception as e:
-            print(f"Batch scoring failed, falling back to per-headline scoring: {e}")
+            logger.warning(
+                "Batch scoring failed, falling back to per-headline scoring: %s",
+                e,
+            )
 
         scored = []
 
@@ -186,7 +200,7 @@ class FinBERTScorer:
 
                 scored.append(self._build_scored_headline(headline, result))
             except Exception as e:
-                print(f"Skipping headline for {headline.ticker}: {e}")
+                logger.warning("Skipping headline for %s: %s", headline.ticker, e)
                 continue
         
         return scored
