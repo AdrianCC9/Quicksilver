@@ -145,11 +145,13 @@ env.bak/
 venv.bak/
 
 # dbt local config and generated artifacts
-dbt/profiles.yml
 dbt/.user.yml
 dbt/logs/
 dbt/target/
 dbt/dbt_packages/
+
+# Airflow local state
+.airflow/
 
 # Spyder project settings
 .spyderproject
@@ -214,6 +216,7 @@ marimo/_lsp/
 __marimo__/
 
 .data
+artifacts/
 
 *.pyc
 

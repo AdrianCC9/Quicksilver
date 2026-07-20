@@ -1,0 +1,25 @@
+[project]
+name = "quicksilver"
+version = "0.1.0"
+description = "Local-first stock sentiment analytics pipeline with optional Kafka, Snowflake, dbt, Airflow, and FinBERT paths."
+readme = "README.md"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [
+    ".data",
+    ".venv",
+    "artifacts",
+    "dbt/logs",
+    "dbt/target",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E402", "E501"]

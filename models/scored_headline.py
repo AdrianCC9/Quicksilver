@@ -25,3 +25,6 @@ class ScoredHeadline:
     source_tier: int
     summary: str | None = None
     content_hash: str | None = None
+    category: str = "financial"
+    topic: str | None = None
+    industry: str | None = None
