@@ -21,10 +21,9 @@ from analytics.insight_engine import InsightEngine
 from alerts.local_health import (
     LocalHealthAlert,
     LocalPipelineHealthMonitor,
-    send_local_health_alerts,
 )
 from config import settings
-from config.watchlist import TOP_50_EQUITY_TICKERS, get_expanded_watchlist
+from config.watchlist import filter_to_sp500_tickers, get_default_watchlist
 from ingestion.finnhub_client import FinnhubClient
 from ingestion.public_news_client import PublicNewsClient
 from models.raw_headline import RawHeadline
@@ -45,8 +44,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--database-url", default=settings.database_url)
     parser.add_argument("--tickers")
-    parser.add_argument("--large-cap-50", action="store_true")
-    parser.add_argument("--large-cap-100", action="store_true")
+    parser.add_argument(
+        "--large-cap-50",
+        action="store_true",
+        help="Compatibility alias; selects the static S&P 500 universe.",
+    )
+    parser.add_argument(
+        "--large-cap-100",
+        action="store_true",
+        help="Compatibility alias; selects the static S&P 500 universe.",
+    )
     parser.add_argument("--max-tickers", type=int, default=settings.public_news_max_tickers)
     parser.add_argument("--lookback-days", type=int, default=settings.lookback_days)
     parser.add_argument("--include-finnhub", action="store_true", default=settings.finnhub_enabled)
@@ -102,9 +109,14 @@ def run_once(args: argparse.Namespace) -> dict[str, object]:
         scored_headlines = scorer.score_batch(normalized_headlines)
         storage.save_scored_headlines(scored_headlines)
 
+        finnhub_scores = collect_finnhub_sentiment_scores(args, tickers)
         since_utc = started_at - timedelta(hours=settings.insight_lookback_hours)
         recent_scored = storage.fetch_recent_scored_headlines(since_utc, tickers=tickers)
-        insights = InsightEngine().generate_insights(recent_scored, as_of_date=date.today())
+        insights = InsightEngine().generate_insights(
+            recent_scored,
+            as_of_date=date.today(),
+            finnhub_scores=finnhub_scores,
+        )
         storage.save_insights(insights)
 
         price_provider = build_price_provider(storage=storage)
@@ -138,6 +150,7 @@ def run_once(args: argparse.Namespace) -> dict[str, object]:
             "raw_headlines_collected": len(raw_headlines),
             "raw_headlines_saved_attempted": len(normalized_headlines),
             "scored_headlines_saved_attempted": len(scored_headlines),
+            "finnhub_scores_collected": len(finnhub_scores),
             "recent_scored_headlines": len(recent_scored),
             "insights_generated": len(insights),
             "simulation": asdict(simulation_result) if simulation_result else None,
@@ -225,11 +238,29 @@ def collect_headlines(args: argparse.Namespace, tickers: list[str]) -> list[RawH
     return headlines
 
 
+def collect_finnhub_sentiment_scores(
+    args: argparse.Namespace,
+    tickers: list[str],
+) -> dict[str, float]:
+    if not args.include_finnhub or not settings.finnhub_api_key:
+        return {}
+
+    client = FinnhubClient(api_key=settings.finnhub_api_key)
+    scores: dict[str, float] = {}
+    for ticker in tickers:
+        try:
+            score = client.fetch_news_sentiment_score(ticker)
+        except Exception as error:
+            logging.warning("Skipping Finnhub sentiment score for %s: %s", ticker, error)
+            continue
+        if score is not None:
+            scores[ticker] = score
+    return scores
+
+
 def resolve_tickers(args: argparse.Namespace) -> list[str]:
-    if args.large_cap_100:
-        selected = get_expanded_watchlist()
-    elif args.large_cap_50:
-        selected = list(TOP_50_EQUITY_TICKERS)
+    if args.large_cap_100 or args.large_cap_50:
+        selected = get_default_watchlist()
     elif args.tickers:
         selected = [
             ticker.strip().upper()
@@ -239,7 +270,13 @@ def resolve_tickers(args: argparse.Namespace) -> list[str]:
     else:
         selected = list(settings.default_tickers)
 
-    unique = list(dict.fromkeys(selected))
+    unique = filter_to_sp500_tickers(selected)
+    dropped_count = len(list(dict.fromkeys(selected))) - len(unique)
+    if dropped_count:
+        logging.warning(
+            "Dropped %s ticker(s) outside the static S&P 500 universe.",
+            dropped_count,
+        )
     if args.max_tickers:
         return unique[: args.max_tickers]
     return unique
@@ -300,9 +337,12 @@ def persist_health_alerts(
         if not alerts:
             return
         storage.save_health_alerts([alert.to_row() for alert in alerts])
-        send_local_health_alerts(alerts)
+        logging.warning(
+            "Persisted %s local health status row(s) for the dashboard.",
+            len(alerts),
+        )
     except Exception:
-        logging.exception("Failed to persist or send local health alerts.")
+        logging.exception("Failed to persist local health alerts.")
 
 
 def print_run_summary(summary: dict[str, object]) -> None:

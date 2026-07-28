@@ -3,14 +3,14 @@
 Quicksilver's maintained default path is the local MySQL and Streamlit workflow:
 
 ```text
-Public RSS / Google News RSS
+Public RSS / Google News RSS / optional Finnhub
 -> Raw headline normalization
 -> MySQL raw_headlines
 -> Lexicon or FinBERT sentiment scoring
 -> MySQL scored_headlines
 -> Ticker-level insight generation
 -> Mock exchange and price-provider evaluation
--> Health checks and weekly reports
+-> Local health status and weekly reports
 -> Streamlit dashboard
 ```
 
@@ -24,7 +24,7 @@ Finnhub API
 -> FinBERT scoring consumer
 -> Snowflake raw/scored tables
 -> dbt marts
--> Streamlit dashboard and alert checks
+-> Streamlit dashboard and optional warehouse alert checks
 ```
 
 See `docs/package_diagram.md` and `docs/class_diagram.md` for diagrams that

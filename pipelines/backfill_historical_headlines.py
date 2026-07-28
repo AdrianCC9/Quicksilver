@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
+import pandas as pd
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,10 +19,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
+from analytics.insight_engine import InsightEngine
 from config import settings
-from config.watchlist import TOP_50_EQUITY_TICKERS
+from config.watchlist import filter_to_sp500_tickers, get_default_watchlist
 from ingestion.finnhub_client import FinnhubClient
 from models.raw_headline import RawHeadline
+from simulation.insight_evaluator import InsightPerformanceEvaluator
+from simulation.mock_exchange import MockExchange
+from simulation.price_provider import build_price_provider
 from sentiment.finbert_scorer import FinBERTScorer
 from storage.factory import build_storage
 from streaming.news_producer import NewsProducer
@@ -56,6 +61,9 @@ class BackfillStats:
     kafka_published: int = 0
     scored_saved: int = 0
     failed_requests: int = 0
+    insights_generated: int = 0
+    backtest_days: int = 0
+    evaluations_saved: int = 0
 
 
 def parse_date(value: str) -> date:
@@ -101,7 +109,7 @@ def unique_preserving_order(values: Iterable[str]) -> list[str]:
 
 def resolve_tickers(args: argparse.Namespace) -> list[str]:
     if args.large_cap_50:
-        tickers = list(TOP_50_EQUITY_TICKERS)
+        tickers = get_default_watchlist()
     elif args.ticker_file:
         tickers = load_tickers_from_file(args.ticker_file)
     elif args.tickers:
@@ -109,7 +117,7 @@ def resolve_tickers(args: argparse.Namespace) -> list[str]:
     else:
         tickers = settings.default_tickers
 
-    return unique_preserving_order(tickers)
+    return filter_to_sp500_tickers(unique_preserving_order(tickers))
 
 
 def date_windows(
@@ -302,7 +310,7 @@ def fetch_adaptive_windows(
 
 def build_parser() -> argparse.ArgumentParser:
     today = date.today()
-    default_from_date = today - timedelta(days=730)
+    default_from_date = today - timedelta(days=183)
 
     parser = argparse.ArgumentParser(
         description=(
@@ -315,7 +323,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--chunk-days", type=int, default=7)
     parser.add_argument("--tickers")
     parser.add_argument("--ticker-file", type=Path)
-    parser.add_argument("--large-cap-50", action="store_true")
+    parser.add_argument(
+        "--large-cap-50",
+        action="store_true",
+        help="Compatibility alias; selects the static S&P 500 universe.",
+    )
     parser.add_argument("--max-requests", type=int)
     parser.add_argument("--sleep-seconds", type=float, default=0.5)
     parser.add_argument("--retry-attempts", type=int, default=3)
@@ -331,6 +343,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--publish-kafka", action="store_true")
     parser.add_argument("--score-and-save", action="store_true")
+    parser.add_argument(
+        "--skip-backtest",
+        action="store_true",
+        help="Skip the simple historical recommendation/backtest step.",
+    )
     parser.add_argument("--log-level", default=settings.log_level)
     return parser
 
@@ -373,11 +390,9 @@ def main() -> None:
     if args.plan_only:
         return
 
-    if len(tickers) < 50:
+    if len(tickers) < 1:
         logging.warning(
-            "Only %s ticker(s) selected. Use --large-cap-50 or --ticker-file "
-            "when you want the project to substantiate the 50+ ticker claim.",
-            len(tickers),
+            "No selected ticker is in the static S&P 500 universe."
         )
 
     client = FinnhubClient(api_key=settings.finnhub_api_key)
@@ -458,13 +473,31 @@ def main() -> None:
                     if args.sleep_seconds:
                         time.sleep(args.sleep_seconds)
 
+        if (
+            storage
+            and args.score_and_save
+            and not args.skip_backtest
+            and is_local_storage_backend(args.storage_backend)
+        ):
+            backtest_summary = run_historical_recommendation_backtest(
+                storage=storage,
+                tickers=tickers,
+                from_date=args.from_date,
+                to_date=args.to_date,
+            )
+            stats.insights_generated = int(backtest_summary["insights_generated"])
+            stats.backtest_days = int(backtest_summary["backtest_days"])
+            stats.evaluations_saved = int(backtest_summary["evaluations_saved"])
+            logging.info("Historical backtest summary: %s", backtest_summary)
+
     finally:
         if storage:
             storage.close()
 
     logging.info(
         "Backfill complete: requests=%s failed_requests=%s fetched=%s "
-        "unique=%s raw_saved=%s kafka_published=%s scored_saved=%s",
+        "unique=%s raw_saved=%s kafka_published=%s scored_saved=%s "
+        "insights_generated=%s backtest_days=%s evaluations_saved=%s",
         stats.requests_attempted,
         stats.failed_requests,
         stats.headlines_fetched,
@@ -472,7 +505,102 @@ def main() -> None:
         stats.raw_saved,
         stats.kafka_published,
         stats.scored_saved,
+        stats.insights_generated,
+        stats.backtest_days,
+        stats.evaluations_saved,
     )
+
+
+def is_local_storage_backend(storage_backend: str) -> bool:
+    return storage_backend.lower() in {"mysql", "local", "local_mysql"}
+
+
+def run_historical_recommendation_backtest(
+    storage,
+    tickers: list[str],
+    from_date: date,
+    to_date: date,
+    run_name: str = "six-month-backfill",
+) -> dict[str, object]:
+    scored = storage.fetch_dashboard_table("scored_headlines")
+    if scored.empty:
+        return {
+            "insights_generated": 0,
+            "backtest_days": 0,
+            "evaluations_saved": 0,
+            "final_equity_cad": None,
+        }
+
+    ticker_set = set(tickers)
+    scored = scored.copy()
+    scored["ticker"] = scored["ticker"].astype(str).str.upper()
+    scored["published_at_utc"] = pd.to_datetime(
+        scored["published_at_utc"],
+        errors="coerce",
+        utc=True,
+    )
+    start_timestamp = pd.Timestamp(from_date, tz="UTC")
+    end_timestamp = pd.Timestamp(to_date + timedelta(days=1), tz="UTC")
+    scored = scored[
+        scored["ticker"].isin(ticker_set)
+        & (scored["published_at_utc"] >= start_timestamp)
+        & (scored["published_at_utc"] < end_timestamp)
+    ]
+    if scored.empty:
+        return {
+            "insights_generated": 0,
+            "backtest_days": 0,
+            "evaluations_saved": 0,
+            "final_equity_cad": None,
+        }
+
+    price_provider = build_price_provider(storage=storage)
+    insight_engine = InsightEngine()
+    mock_exchange = MockExchange(storage, price_provider=price_provider)
+    evaluation = None
+    last_result = None
+    insights_generated = 0
+    backtest_days = 0
+
+    for run_date in sorted(scored["published_at_utc"].dt.date.dropna().unique()):
+        window_start = pd.Timestamp(
+            run_date - timedelta(days=settings.lookback_days),
+            tz="UTC",
+        )
+        window_end = pd.Timestamp(run_date + timedelta(days=1), tz="UTC")
+        window = scored[
+            (scored["published_at_utc"] >= window_start)
+            & (scored["published_at_utc"] < window_end)
+        ]
+        insights = insight_engine.generate_insights(window, as_of_date=run_date)
+        if not insights:
+            continue
+
+        storage.save_insights(insights)
+        insights_generated += len(insights)
+        latest_insights = storage.fetch_latest_insights(as_of_date=run_date)
+        last_result = mock_exchange.rebalance_from_insights(
+            insights=latest_insights,
+            as_of_date=run_date,
+            run_name=run_name,
+            starting_cash_cad=settings.portfolio_initial_cash_cad,
+            max_positions=settings.portfolio_max_positions,
+            cash_reserve_pct=settings.portfolio_cash_reserve_pct,
+        )
+        backtest_days += 1
+
+    if backtest_days:
+        evaluation = InsightPerformanceEvaluator(
+            storage,
+            price_provider=price_provider,
+        ).evaluate_all(as_of_date=to_date)
+
+    return {
+        "insights_generated": insights_generated,
+        "backtest_days": backtest_days,
+        "evaluations_saved": evaluation.evaluations_saved if evaluation else 0,
+        "final_equity_cad": last_result.total_equity_cad if last_result else None,
+    }
 
 
 if __name__ == "__main__":

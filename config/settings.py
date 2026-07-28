@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from typing import List
 
-from config.watchlist import get_default_watchlist
+from config.watchlist import filter_to_sp500_tickers, get_default_watchlist
 
 load_dotenv()
 
@@ -13,18 +13,18 @@ def _load_default_tickers() -> List[str]:
     use_custom_tickers = os.getenv("USE_CUSTOM_TICKERS", "false").lower() == "true"
 
     if use_custom_tickers and configured_tickers:
-        return [
+        return filter_to_sp500_tickers([
             ticker.strip().upper()
             for ticker in configured_tickers.split(",")
             if ticker.strip()
-        ]
+        ])
 
     additional_tickers = [
         ticker.strip().upper()
         for ticker in os.getenv("ADDITIONAL_TICKERS", "").split(",")
         if ticker.strip()
     ]
-    return list(dict.fromkeys(get_default_watchlist() + additional_tickers))
+    return filter_to_sp500_tickers(get_default_watchlist() + additional_tickers)
 
 
 @dataclass
@@ -60,7 +60,7 @@ class Settings:
     lookback_days: int = int(os.getenv("LOOKBACK_DAYS", "3"))
     public_news_enabled: bool = os.getenv("PUBLIC_NEWS_ENABLED", "true").lower() == "true"
     finnhub_enabled: bool = os.getenv("FINNHUB_ENABLED", "false").lower() == "true"
-    public_news_max_tickers: int = int(os.getenv("PUBLIC_NEWS_MAX_TICKERS", "100"))
+    public_news_max_tickers: int = int(os.getenv("PUBLIC_NEWS_MAX_TICKERS", "503"))
     public_news_max_items_per_feed: int = int(
         os.getenv("PUBLIC_NEWS_MAX_ITEMS_PER_FEED", "12")
     )
@@ -119,20 +119,6 @@ class Settings:
     volume_spike_zscore_threshold: float = float(
         os.getenv("VOLUME_SPIKE_ZSCORE_THRESHOLD", "2.0")
     )
-
-    # Alerts
-    local_health_notifications_enabled: bool = (
-        os.getenv("LOCAL_HEALTH_NOTIFICATIONS_ENABLED", "false").lower() == "true"
-    )
-    slack_enabled: bool = os.getenv("SLACK_ENABLED", "false").lower() == "true"
-    slack_webhook_url: str = os.getenv("SLACK_WEBHOOK_URL", "")
-
-    email_enabled: bool = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
-    alert_email_to: str = os.getenv("ALERT_EMAIL_TO", "")
-    smtp_host: str = os.getenv("SMTP_HOST", "")
-    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
-    smtp_username: str = os.getenv("SMTP_USERNAME", "")
-    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
 
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")

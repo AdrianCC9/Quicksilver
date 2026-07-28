@@ -33,11 +33,16 @@ class InsightEngine:
         self,
         scored_headlines: pd.DataFrame,
         as_of_date: date | None = None,
+        finnhub_scores: dict[str, float] | None = None,
     ) -> list[Insight]:
         if scored_headlines.empty:
             return []
 
         working = scored_headlines.copy()
+        finnhub_scores = {
+            ticker.upper(): score
+            for ticker, score in (finnhub_scores or {}).items()
+        }
         working["published_at_utc"] = pd.to_datetime(
             working["published_at_utc"],
             utc=True,
@@ -65,11 +70,16 @@ class InsightEngine:
         insights: list[Insight] = []
 
         for ticker, group in working.groupby("ticker"):
+            ticker_text = str(ticker).upper()
             group = group.sort_values("published_at_utc", ascending=False)
             weights = self._weights(group)
             weighted_score = float((group["compound_score"] * weights).sum() / weights.sum())
             weighted_confidence = float((group["confidence"] * weights).sum() / weights.sum())
-            signal_score = self._apply_volume_boost(weighted_score, len(group))
+            finnhub_score = finnhub_scores.get(ticker_text)
+            signal_score = self._combine_model_scores(
+                self._apply_volume_boost(weighted_score, len(group)),
+                finnhub_score,
+            )
             signal_label = self._signal_label(signal_score)
             source_count = int(group["source"].nunique())
             source_diversity_score = self._source_diversity_score(source_count)
@@ -130,6 +140,7 @@ class InsightEngine:
                         recommendation=recommendation,
                         risk_score=risk_score,
                         opportunity_score=opportunity_score,
+                        finnhub_score=finnhub_score,
                     ),
                     horizon_days=self.horizon_days,
                     source_headline_hashes=[
@@ -153,6 +164,16 @@ class InsightEngine:
 
         boost = min(0.12, log1p(headline_count) / 30)
         return max(min(score + copysign(boost, score), 1.0), -1.0)
+
+    @staticmethod
+    def _combine_model_scores(
+        headline_score: float,
+        finnhub_score: float | None,
+    ) -> float:
+        if finnhub_score is None:
+            return headline_score
+        combined = (headline_score * 0.7) + (finnhub_score * 0.3)
+        return max(min(combined, 1.0), -1.0)
 
     @staticmethod
     def _source_diversity_score(source_count: int) -> float:
@@ -296,6 +317,7 @@ class InsightEngine:
         recommendation: str,
         risk_score: float,
         opportunity_score: float,
+        finnhub_score: float | None = None,
     ) -> str:
         top = group.assign(abs_score=group["compound_score"].abs()).sort_values(
             ["abs_score", "published_at_utc"],
@@ -310,10 +332,16 @@ class InsightEngine:
         )
         topic_note = f" Topic: {top['topic']}." if top.get("topic") else ""
 
+        finnhub_note = (
+            f" Finnhub ticker score {finnhub_score:+.3f} was blended in."
+            if finnhub_score is not None
+            else ""
+        )
+
         return (
             f"{recommendation.replace('_', ' ').title()} from "
             f"{signal_label} {signal_score:+.3f} signal across "
             f"{len(group)} headline(s): {policy_note}{financial_count} financial "
             f"headline(s). Opportunity {opportunity_score:.2f}, risk {risk_score:.2f}. "
-            f"Strongest catalyst: {top['headline']}.{topic_note}"
+            f"Strongest catalyst: {top['headline']}.{topic_note}{finnhub_note}"
         )

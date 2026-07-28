@@ -3,14 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import logging
-import smtplib
-from email.message import EmailMessage
 from typing import Any
 
-import requests
-
 from config import settings
-
 
 logger = logging.getLogger(__name__)
 
@@ -206,58 +201,16 @@ def format_local_health_alerts(alerts: list[LocalHealthAlert]) -> str:
     if not alerts:
         return "Quicksilver local health check passed."
 
-    lines = ["Quicksilver local health alerts", ""]
+    lines = ["Quicksilver local health status", ""]
     for alert in alerts:
         lines.append(f"- {alert.severity.upper()} {alert.alert_type}: {alert.message}")
     return "\n".join(lines)
 
 
 def send_local_health_alerts(alerts: list[LocalHealthAlert]) -> None:
+    """Compatibility helper: local health status is logged/persisted, not delivered."""
     if not alerts:
         return
 
     message = format_local_health_alerts(alerts)
     logger.warning(message)
-    if not settings.local_health_notifications_enabled:
-        return
-
-    _send_slack(message)
-    _send_email(message)
-
-
-def _send_slack(message: str) -> None:
-    if not settings.slack_enabled:
-        return
-    if not settings.slack_webhook_url:
-        raise ValueError("SLACK_ENABLED is true, but SLACK_WEBHOOK_URL is missing.")
-
-    response = requests.post(
-        settings.slack_webhook_url,
-        json={"text": message},
-        timeout=15,
-    )
-    response.raise_for_status()
-
-
-def _send_email(message: str) -> None:
-    if not settings.email_enabled:
-        return
-
-    recipients = [
-        email.strip()
-        for email in settings.alert_email_to.split(",")
-        if email.strip()
-    ]
-    if not recipients:
-        raise ValueError("EMAIL_ENABLED is true, but ALERT_EMAIL_TO is missing.")
-
-    email_message = EmailMessage()
-    email_message["Subject"] = "Quicksilver local health alert"
-    email_message["From"] = settings.smtp_username
-    email_message["To"] = ", ".join(recipients)
-    email_message.set_content(message)
-
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
-        server.starttls()
-        server.login(settings.smtp_username, settings.smtp_password)
-        server.send_message(email_message)

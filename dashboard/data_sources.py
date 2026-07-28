@@ -338,14 +338,14 @@ def load_demo_dashboard_data() -> dict[str, pd.DataFrame]:
             {
                 "first_scored_headline_at_utc": dates.min(),
                 "latest_scored_headline_at_utc": dates.max(),
-                "coverage_days": 730,
-                "total_scored_headlines": 365000,
-                "tracked_ticker_count": 50,
+                "coverage_days": 183,
+                "total_scored_headlines": 91500,
+                "tracked_ticker_count": 503,
                 "avg_scored_headlines_per_day": 500,
                 "max_scored_headlines_in_one_day": 740,
-                "days_with_500_plus_scored_headlines": 410,
-                "has_50_plus_tickers": True,
-                "has_2_plus_years": True,
+                "days_with_500_plus_scored_headlines": 120,
+                "has_sp500_scale_tickers": True,
+                "has_six_month_window": True,
                 "has_500_plus_daily_headlines": True,
             }
         ]

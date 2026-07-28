@@ -264,8 +264,8 @@ def _build_audit_frame(scored: pd.DataFrame) -> pd.DataFrame:
                 "avg_scored_headlines_per_day": daily_counts.mean(),
                 "max_scored_headlines_in_one_day": int(daily_counts.max()),
                 "days_with_500_plus_scored_headlines": int((daily_counts >= 500).sum()),
-                "has_50_plus_tickers": scored["ticker"].nunique() >= 50,
-                "has_2_plus_years": coverage_days >= 730,
+                "has_sp500_scale_tickers": scored["ticker"].nunique() >= 500,
+                "has_six_month_window": coverage_days >= 180,
                 "has_500_plus_daily_headlines": int(daily_counts.max()) >= 500,
                 "loaded_at_utc": datetime.now(timezone.utc),
             }

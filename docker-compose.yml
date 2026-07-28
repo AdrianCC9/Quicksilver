@@ -138,7 +138,6 @@ services:
     command:
       - python
       - pipelines/run_local_pipeline.py
-      - --large-cap-100
       - --loop
       - --interval-minutes
       - "60"
