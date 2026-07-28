@@ -9,7 +9,7 @@ flowchart LR
     analytics["analytics/\ninsights, local dashboard aggregates, reports"]
     simulation["simulation/\nquote providers, mock exchange, evaluations"]
     storage["storage/\nlocal MySQL, schema, Snowflake adapter"]
-    alerts["alerts/\nhealth and sentiment notifications"]
+    alerts["alerts/\nlocal status and optional cloud alerts"]
     dashboard["dashboard/\nStreamlit UI and data sources"]
     pipelines["pipelines/\nlocal runner, ingestion, backfill"]
     scripts["scripts/\nmaintenance commands"]

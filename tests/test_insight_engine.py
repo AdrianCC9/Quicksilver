@@ -45,3 +45,30 @@ def test_insight_engine_generates_positive_policy_signal():
     assert insights[0].political_headline_count == 1
     assert "political/policy" in insights[0].rationale
 
+
+def test_insight_engine_blends_optional_finnhub_score():
+    scored = pd.DataFrame(
+        [
+            {
+                "ticker": "AAPL",
+                "headline": "Apple gives cautious guidance",
+                "published_at_utc": datetime.now(timezone.utc),
+                "compound_score": -0.2,
+                "confidence": 0.8,
+                "source_tier": 2,
+                "category": "financial",
+                "topic": "company_news",
+                "industry": None,
+                "source": "Demo Wire",
+                "content_hash": "ghi",
+            }
+        ]
+    )
+
+    insights = InsightEngine().generate_insights(
+        scored,
+        finnhub_scores={"AAPL": 0.9},
+    )
+
+    assert insights[0].signal_score > 0
+    assert "Finnhub ticker score" in insights[0].rationale

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from argparse import Namespace
 
-from pipelines.run_local_pipeline import run_once
+from pipelines.run_local_pipeline import resolve_tickers, run_once
 from storage.local_mysql_storage import LocalMySQLStorage
 
 
@@ -43,3 +43,14 @@ def test_run_local_pipeline_smoke_with_demo_seed(tmp_path):
     assert len(storage.fetch_dashboard_table("insights")) == 2
     assert len(storage.fetch_dashboard_table("pipeline_run_logs")) == 1
     storage.close()
+
+
+def test_run_local_pipeline_filters_custom_tickers_to_sp500():
+    args = Namespace(
+        tickers="AAPL,SHOP,MSFT",
+        large_cap_50=False,
+        large_cap_100=False,
+        max_tickers=None,
+    )
+
+    assert resolve_tickers(args) == ["AAPL", "MSFT"]

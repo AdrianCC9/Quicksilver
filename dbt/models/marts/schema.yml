@@ -64,9 +64,11 @@ models:
           - not_null
 
   - name: pipeline_claim_audit
-    description: Warehouse-level audit view for validating resume-scale claims such as 50+ tickers, 500+ headline days, and 2+ years of data.
+    description: Warehouse-level audit view for validating the six-month S&P 500 demo corpus and headline-volume claims.
     columns:
       - name: tracked_ticker_count
       - name: coverage_days
       - name: active_scored_days
       - name: max_scored_headlines_in_one_day
+      - name: has_sp500_scale_tickers
+      - name: has_six_month_window

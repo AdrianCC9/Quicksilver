@@ -17,7 +17,6 @@ load_dotenv(PROJECT_ROOT / ".env", override=False)
 from alerts.local_health import (  # noqa: E402
     LocalPipelineHealthMonitor,
     format_local_health_alerts,
-    send_local_health_alerts,
 )
 from config import settings  # noqa: E402
 from storage.local_mysql_storage import LocalMySQLStorage  # noqa: E402
@@ -28,7 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Check Quicksilver local pipeline health and persist alerts."
     )
     parser.add_argument("--database-url", default=settings.database_url)
-    parser.add_argument("--send", action="store_true", help="Send Slack/email alerts if enabled.")
+    parser.add_argument(
+        "--send",
+        action="store_true",
+        help="Compatibility no-op; local health prints and persists status only.",
+    )
     return parser
 
 
@@ -42,8 +45,6 @@ def main() -> None:
         alerts = LocalPipelineHealthMonitor().evaluate_staleness(latest_success)
         storage.resolve_health_alerts(LocalPipelineHealthMonitor.MONITORED_ALERT_TYPES)
         storage.save_health_alerts([alert.to_row() for alert in alerts])
-        if args.send:
-            send_local_health_alerts(alerts)
         print(format_local_health_alerts(alerts))
     finally:
         storage.close()

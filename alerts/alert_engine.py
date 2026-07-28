@@ -1,11 +1,8 @@
 import os
 import logging
-import smtplib
-from email.message import EmailMessage
 from typing import Any
 
 import pandas as pd
-import requests
 import snowflake.connector
 from dotenv import load_dotenv
 
@@ -25,6 +22,7 @@ REQUIRED_ENV_VARS = [
     "SNOWFLAKE_DATABASE",
     "SNOWFLAKE_SCHEMA",
 ]
+
 
 def get_missing_env_vars() -> list[str]:
     return [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
@@ -93,12 +91,13 @@ def load_active_signals() -> pd.DataFrame:
     dataframe.columns = [column.lower() for column in dataframe.columns]
     return dataframe
 
+
 def format_alert_message(signals: pd.DataFrame) -> str:
     if signals.empty:
-        return "Quicksilver alert check completed. No active sentiment signals found."
+        return "Quicksilver status check completed. No active sentiment signals found."
 
     lines = [
-        "Quicksilver sentiment alert",
+        "Quicksilver sentiment status check",
         "",
         f"Active signals found: {len(signals)}",
         "",
@@ -147,53 +146,7 @@ def format_pipeline_failure_message(context: dict[str, Any]) -> str:
 def send_pipeline_failure_alert(context: dict[str, Any]) -> None:
     message = format_pipeline_failure_message(context)
     logger.error(message)
-    send_slack_alert(message)
-    send_email_alert(message)
 
-def send_slack_alert(message: str) -> None:
-    if os.getenv("SLACK_ENABLED", "false").lower() != "true":
-        return
-
-    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
-    if not webhook_url:
-        raise ValueError("SLACK_ENABLED is true, but SLACK_WEBHOOK_URL is missing.")
-
-    response = requests.post(
-        webhook_url,
-        json={"text": message},
-        timeout=15,
-    )
-    response.raise_for_status()
-
-def send_email_alert(message: str) -> None:
-    if os.getenv("EMAIL_ENABLED", "false").lower() != "true":
-        return
-
-    recipients = [
-        email.strip()
-        for email in os.getenv("ALERT_EMAIL_TO", "").split(",")
-        if email.strip()
-    ]
-
-    if not recipients:
-        raise ValueError("EMAIL_ENABLED is true, but ALERT_EMAIL_TO is missing.")
-
-    email_message = EmailMessage()
-    email_message["Subject"] = "Quicksilver sentiment alert"
-    email_message["From"] = os.getenv("SMTP_USERNAME")
-    email_message["To"] = ", ".join(recipients)
-    email_message.set_content(message)
-
-    with smtplib.SMTP(
-        os.getenv("SMTP_HOST"),
-        int(os.getenv("SMTP_PORT", "587")),
-    ) as server:
-        server.starttls()
-        server.login(
-            os.getenv("SMTP_USERNAME"),
-            os.getenv("SMTP_PASSWORD"),
-        )
-        server.send_message(email_message)
 
 def main() -> None:
     missing_env_vars = get_missing_env_vars()
@@ -207,10 +160,6 @@ def main() -> None:
     message = format_alert_message(signals)
 
     print(message)
-
-    if not signals.empty:
-        send_slack_alert(message)
-        send_email_alert(message)
 
 
 if __name__ == "__main__":

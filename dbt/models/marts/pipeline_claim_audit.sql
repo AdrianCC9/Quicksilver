@@ -42,8 +42,8 @@ select
     summary.avg_scored_headlines_per_day,
     max(daily.scored_headlines) as max_scored_headlines_in_one_day,
     count_if(daily.scored_headlines >= 500) as days_with_500_plus_scored_headlines,
-    summary.tracked_ticker_count >= 50 as has_50_plus_tickers,
-    summary.active_scored_days >= 730 as has_2_plus_years,
+    summary.tracked_ticker_count >= 500 as has_sp500_scale_tickers,
+    summary.active_scored_days >= 180 as has_six_month_window,
     max(daily.scored_headlines) >= 500 as has_500_plus_daily_headlines
 from summary
 left join daily on true

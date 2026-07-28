@@ -1,24 +1,37 @@
 from config import settings
 from config.watchlist import (
     EXPANDED_EQUITY_TICKERS,
+    SP500_TICKERS,
     TOP_50_EQUITY_TICKERS,
+    filter_to_sp500_tickers,
     get_default_watchlist,
     get_expanded_watchlist,
 )
 
 
-def test_top_50_watchlist_has_exactly_50_unique_tickers():
-    assert len(TOP_50_EQUITY_TICKERS) == 50
-    assert len(set(TOP_50_EQUITY_TICKERS)) == 50
+def test_sp500_watchlist_is_the_canonical_universe():
+    assert len(SP500_TICKERS) == 503
+    assert len(set(SP500_TICKERS)) == 503
+    assert "AAPL" in SP500_TICKERS
+    assert "MSFT" in SP500_TICKERS
+    assert "BRK.B" in SP500_TICKERS
 
 
-def test_settings_defaults_to_top_50_watchlist():
+def test_settings_defaults_to_sp500_watchlist():
     assert settings.default_tickers == get_default_watchlist()
 
 
-def test_expanded_watchlist_has_at_least_100_unique_tickers():
+def test_legacy_watchlist_names_alias_sp500_universe():
     expanded = get_expanded_watchlist()
 
-    assert len(EXPANDED_EQUITY_TICKERS) >= 100
-    assert len(expanded) >= 100
+    assert TOP_50_EQUITY_TICKERS == SP500_TICKERS
+    assert EXPANDED_EQUITY_TICKERS == SP500_TICKERS
+    assert expanded == list(SP500_TICKERS)
     assert len(expanded) == len(set(expanded))
+
+
+def test_filter_to_sp500_tickers_drops_non_sp500_names():
+    assert filter_to_sp500_tickers(["AAPL", "SHOP", "MSFT", "AAPL"]) == [
+        "AAPL",
+        "MSFT",
+    ]
